@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/services.dart';
+import 'bluetooth_mesh_service.dart' show PeerDiscoveredCallback;
 
-/// iOS BLE Peripheral Service
-/// Provides BLE peripheral functionality using iOS native code
+/// iOS BLE Service
+/// Provides both BLE peripheral and central functionality using iOS native code
 class IOSBlePeripheralService {
   static const MethodChannel _channel = MethodChannel('com.bitchat.core/ble_peripheral');
   
@@ -13,6 +14,8 @@ class IOSBlePeripheralService {
   
   bool _isInitialized = false;
   StreamController<Map<String, dynamic>>? _messageController;
+  StreamController<Map<String, dynamic>>? _peerController;
+  PeerDiscoveredCallback? _onPeerDiscovered;
   
   /// Initialize the peripheral service
   Future<bool> initialize() async {
@@ -104,12 +107,63 @@ class IOSBlePeripheralService {
     }
   }
   
+  // Central service methods
+  /// Start BLE scanning
+  Future<bool> startScanning({PeerDiscoveredCallback? onPeer}) async {
+    if (!_isInitialized) {
+      final initialized = await initialize();
+      if (!initialized) return false;
+    }
+    
+    _onPeerDiscovered = onPeer;
+    
+    try {
+      final result = await _channel.invokeMethod('startScanning');
+      print('🔵 iOS BLE scanning started: $result');
+      return result == true;
+    } catch (e) {
+      print('🔴 Failed to start iOS BLE scanning: $e');
+      return false;
+    }
+  }
+  
+  /// Stop BLE scanning
+  Future<bool> stopScanning() async {
+    try {
+      final result = await _channel.invokeMethod('stopScanning');
+      print('🔵 iOS BLE scanning stopped: $result');
+      return result == true;
+    } catch (e) {
+      print('🔴 Failed to stop iOS BLE scanning: $e');
+      return false;
+    }
+  }
+  
+  /// Check if currently scanning
+  Future<bool> isScanning() async {
+    try {
+      final result = await _channel.invokeMethod('isScanning');
+      return result == true;
+    } catch (e) {
+      print('🔴 Failed to check scanning status: $e');
+      return false;
+    }
+  }
+  
   /// Get message stream
   Stream<Map<String, dynamic>> get messageStream {
     if (_messageController == null) {
       _messageController = StreamController<Map<String, dynamic>>.broadcast();
     }
     return _messageController!.stream;
+  }
+  
+  /// Get peer discovery stream
+  Stream<Map<String, dynamic>> get peerStream {
+    if (_peerController == null) {
+      _peerController = StreamController<Map<String, dynamic>>.broadcast();
+    }
+    return _peerController!.stream;
   }
   
   /// Handle method calls from iOS
@@ -129,6 +183,24 @@ class IOSBlePeripheralService {
         });
         break;
         
+      case 'onPeerDiscovered':
+        final args = call.arguments;
+        final peerId = args?['peerId'] as String? ?? '';
+        final publicKeyDigest = args?['publicKeyDigest'] as Uint8List?;
+        print('🔵 Peer discovered from iOS: peerId=$peerId, digest=${publicKeyDigest?.length} bytes');
+
+        if (peerId.isEmpty) return;
+
+        // Call the callback if set
+        _onPeerDiscovered?.call(peerId, publicKeyDigest);
+
+        // Add to peer stream
+        _peerController?.add({
+          'peerId': peerId,
+          'publicKeyDigest': publicKeyDigest,
+        });
+        break;
+        
       default:
         print('🔵 Unknown method call from iOS: ${call.method}');
     }
@@ -138,6 +210,9 @@ class IOSBlePeripheralService {
   void dispose() {
     _messageController?.close();
     _messageController = null;
+    _peerController?.close();
+    _peerController = null;
+    _onPeerDiscovered = null;
     _isInitialized = false;
   }
 } 

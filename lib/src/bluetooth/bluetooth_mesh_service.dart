@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter_ble_peripheral/flutter_ble_peripheral.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter/services.dart';
+import 'dart:io' show Platform;
 import 'ios_ble_peripheral.dart';
 
 /// Callback for peer discovery
@@ -20,13 +21,13 @@ class BluetoothMeshService {
   BluetoothMeshService._internal();
 
   final FlutterBlePeripheral _blePeripheral = FlutterBlePeripheral();
-  final IOSBlePeripheralService _iosPeripheral = IOSBlePeripheralService();
+  final IOSBlePeripheralService _iosService = IOSBlePeripheralService();
 
   // Service UUID matching Swift implementation
   static const String serviceUUID = 'F47B5E2D-4A9E-4C5A-9B3F-8E1D2C3A4B5C';
   static const String characteristicUUID = 'A1B2C3D4-E5F6-4A5B-8C9D-0E1F2A3B4C5D';
 
-  StreamSubscription<List<ScanResult>>? _scanSubscription;
+  StreamSubscription<ScanResult>? _scanSubscription;
   PeerDiscoveredCallback? onPeerDiscovered;
   MessageReceivedCallback? onMessageReceived;
 
@@ -59,7 +60,7 @@ class BluetoothMeshService {
       
       // Start iOS peripheral service
       try {
-        final iosStarted = await _iosPeripheral.startService(
+        final iosStarted = await _iosService.startService(
           peerID: peerId,
           nickname: nickname,
         );
@@ -67,7 +68,7 @@ class BluetoothMeshService {
           print('🔵 iOS BLE peripheral service started');
           
           // Listen for messages from iOS
-          _iosPeripheral.messageStream.listen((message) {
+          _iosService.messageStream.listen((message) {
             final senderId = message['senderId'] as String;
             final payload = message['payload'] as Uint8List;
             print('🔵 Received message from iOS: senderId=$senderId, payload=${payload.length} bytes');
@@ -148,7 +149,7 @@ class BluetoothMeshService {
     
     // Stop iOS peripheral service
     try {
-      await _iosPeripheral.stopService();
+      await _iosService.stopService();
       print('🔵 iOS BLE peripheral service stopped');
     } catch (e) {
       print('🔵 iOS BLE peripheral service stop failed: $e');
@@ -158,7 +159,8 @@ class BluetoothMeshService {
     _isAdvertising = false;
   }
 
-  /// Start BLE scanning for other devices
+  /// Start BLE scanning
+  /// Uses native iOS implementation when available, fallback to FlutterBluePlus
   Future<void> startScanning({PeerDiscoveredCallback? onPeer}) async {
     if (_isScanning) {
       print('🔵 [BLE] Already scanning, skipping duplicate start');
@@ -168,85 +170,123 @@ class BluetoothMeshService {
     
     try {
       print('🔵 [BLE] Starting scan...');
-      
-      // Use FlutterBluePlus.scan() with proper API
-      _scanSubscription = FlutterBluePlus.scanResults.listen((scanResults) async {
-        for (final scanResult in scanResults) {
-          final adv = scanResult.advertisementData;
-          final peerId = adv.advName;
-          final device = scanResult.device;
-          
-          print('🔵 [BLE] Discovered device: ${device.platformName}');
-          print('🔵 [BLE] Device name: ${scanResult.device.platformName}');
-          print('🔵 [BLE] Advertisement advName: ${adv.advName}');
-          print('🔵 [BLE] Advertisement serviceUUIDs: ${adv.serviceUuids}');
-          print('🔵 [BLE] Advertisement manufacturerData: ${adv.manufacturerData}');
-          print('🔵 [BLE] Using peerId: $peerId');
-          print('🔵 [BLE] My peerId: $_myPeerID');
-          
-          // Check if device has our service UUID
-          final hasServiceUUID = adv.serviceUuids.any((uuid) => 
-            uuid.toString().toUpperCase() == serviceUUID.toUpperCase()
-          );
-          
-          if (!hasServiceUUID) {
-            print('🔵 [BLE] Skipping device: does not have our service UUID');
-            continue;
-          }
-          
-          Uint8List? publicKeyDigest;
-          if (adv.manufacturerData.isNotEmpty) {
-            final firstData = adv.manufacturerData.values.first;
-            publicKeyDigest = Uint8List.fromList(firstData);
-            print('🔵 [BLE] Found manufacturer data: ${firstData.length} bytes');
-          }
-          
-          // Filter out our own broadcasts and ensure peerId is valid
-          if (peerId != null && 
-              peerId.isNotEmpty && 
-              peerId != _myPeerID &&
-              peerId.length == 8) { // Swift only connects to 8-char peer IDs
-            print('🔵 [BLE] Calling onPeerDiscovered with peerId: $peerId');
-            if (onPeerDiscovered != null) {
-              onPeerDiscovered!(peerId, publicKeyDigest);
+
+      // Use native iOS scanning if available
+      if (Platform.isIOS) {
+        try {
+          print('🔵 [BLE] Using native iOS scanning');
+          final success = await _iosService.startScanning(onPeer: (peerId, publicKeyDigest) {
+            print('🔵 [BLE] Native iOS discovered peerId: $peerId');
+            
+            // Filter out our own broadcasts and ensure peerId is valid
+            if (peerId.isNotEmpty && 
+                peerId != _myPeerID &&
+                peerId.length == 8) {
+              print('🔵 [BLE] Calling onPeerDiscovered with peerId: $peerId');
+              if (onPeerDiscovered != null) {
+                onPeerDiscovered!(peerId, publicKeyDigest);
+              }
+            } else {
+              print('🔵 [BLE] Skipping device: peerId=$peerId (length=${peerId.length}), myPeerID=$_myPeerID');
             }
-            // Auto connect to discovered peer
-            await _connectToPeer(peerId, device);
+          });
+          
+          if (success) {
+            _isScanning = true;
+            print('🔵 [BLE] Native iOS scanning started successfully');
+            return;
           } else {
-            print('🔵 [BLE] Skipping device: peerId=$peerId (length=${peerId?.length}), myPeerID=$_myPeerID, onPeerDiscovered=${onPeerDiscovered != null}');
-            if (peerId == null) {
-              print('🔵 [BLE] peerId is null');
-            } else if (peerId.isEmpty) {
-              print('🔵 [BLE] peerId is empty');
-            } else if (peerId == _myPeerID) {
-              print('🔵 [BLE] peerId matches my own peer ID');
-            } else if (peerId.length != 8) {
-              print('🔵 [BLE] peerId length is not 8: ${peerId.length}');
-            }
+            print('🔵 [BLE] Native iOS scanning failed, falling back to FlutterBluePlus');
+          }
+        } catch (e) {
+          print('🔵 [BLE] Native iOS scanning not available: $e, falling back to FlutterBluePlus');
+        }
+      }
+      
+      // Fallback to FlutterBluePlus scanning for Android or if iOS native fails
+      print('🔵 [BLE] Using FlutterBluePlus scanning');
+      _scanSubscription = FlutterBluePlus.scan().listen((scanResult) async {
+        final adv = scanResult.advertisementData;
+        final peerId = adv.localName ?? scanResult.device.name;
+        final device = scanResult.device;
+        
+        print('🔵 [BLE] Discovered device: ${device.platformName}');
+        print('🔵 [BLE] Device name: ${scanResult.device.name}');
+        print('🔵 [BLE] Advertisement localName: ${adv.localName}');
+        print('🔵 [BLE] Advertisement serviceUUIDs: ${adv.serviceUuids}');
+        print('🔵 [BLE] Advertisement manufacturerData: ${adv.manufacturerData}');
+        print('🔵 [BLE] Using peerId: $peerId');
+        print('🔵 [BLE] My peerId: $_myPeerID');
+        
+        // Check if device has our service UUID
+        final hasServiceUUID = adv.serviceUuids.any((uuid) => 
+          uuid.toString().toUpperCase() == serviceUUID.toUpperCase()
+        );
+        
+        if (!hasServiceUUID) {
+          print('🔵 [BLE] Skipping device: does not have our service UUID');
+          return;
+        }
+        
+        Uint8List? publicKeyDigest;
+        if (adv.manufacturerData.isNotEmpty) {
+          final firstData = adv.manufacturerData.values.first;
+          publicKeyDigest = Uint8List.fromList(firstData);
+          print('🔵 [BLE] Found manufacturer data: ${firstData.length} bytes');
+        }
+        
+        // Filter out our own broadcasts and ensure peerId is valid
+        if (peerId != null && 
+            peerId.isNotEmpty && 
+            peerId != _myPeerID &&
+            peerId.length == 8) { // Swift only connects to 8-char peer IDs
+          print('🔵 [BLE] Calling onPeerDiscovered with peerId: $peerId');
+          if (onPeerDiscovered != null) {
+            onPeerDiscovered!(peerId, publicKeyDigest);
+          }
+          // Auto connect to discovered peer
+          await _connectToPeer(peerId, device);
+        } else {
+          print('🔵 [BLE] Skipping device: peerId=$peerId (length=${peerId?.length}), myPeerID=$_myPeerID, onPeerDiscovered=${onPeerDiscovered != null}');
+          if (peerId == null) {
+            print('🔵 [BLE] peerId is null');
+          } else if (peerId.isEmpty) {
+            print('🔵 [BLE] peerId is empty');
+          } else if (peerId == _myPeerID) {
+            print('🔵 [BLE] peerId matches my own peer ID');
+          } else if (peerId.length != 8) {
+            print('🔵 [BLE] peerId length is not 8: ${peerId.length}');
           }
         }
       });
-      
-      // Start scanning
-      await FlutterBluePlus.startScan(
-        timeout: const Duration(seconds: 10),
-        androidUsesFineLocation: false,
-      );
-      
       _isScanning = true;
-      print('🔵 [BLE] Scanning started successfully');
+      print('🔵 [BLE] FlutterBluePlus scanning started successfully');
     } catch (e) {
       print('🔴 [BLE] Failed to start scanning: $e');
       print('🔴 [BLE] Error type: ${e.runtimeType}');
+      // Don't set _isScanning to true if scanning failed
     }
   }
 
   /// Stop BLE scanning
   Future<void> stopScanning() async {
     if (!_isScanning) return;
+    
+    // Stop native iOS scanning if active
+    if (Platform.isIOS) {
+      try {
+        await _iosService.stopScanning();
+        print('🔵 [BLE] Native iOS scanning stopped');
+      } catch (e) {
+        print('🔵 [BLE] Error stopping native iOS scanning: $e');
+      }
+    }
+    
+    // Stop FlutterBluePlus scanning if active
     await _scanSubscription?.cancel();
-    await FlutterBluePlus.stopScan();
+    _scanSubscription = null;
     _isScanning = false;
+    print('🔵 [BLE] Scanning stopped');
   }
 
 
@@ -323,7 +363,7 @@ class BluetoothMeshService {
       
       // Send via iOS peripheral service if available
       try {
-        final success = await _iosPeripheral.sendMessage(data);
+        final success = await _iosService.sendMessage(data);
         if (success) {
           print('🔵 Message sent via iOS peripheral service');
           return true;
