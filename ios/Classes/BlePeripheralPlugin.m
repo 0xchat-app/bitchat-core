@@ -17,12 +17,9 @@
     BlePeripheralPlugin* instance = [[BlePeripheralPlugin alloc] init];
     instance.methodChannel = channel;
     [registrar addMethodCallDelegate:instance channel:channel];
-    
-    NSLog(@"[BLE] BlePeripheralPlugin registered with channel: com.bitchat.core/ble_peripheral (supports both peripheral and central functions)");
 }
 
 - (void)handleMethodCall:(FlutterMethodCall*)call result:(FlutterResult)result {
-    NSLog(@"[BLE] Received method call: %@", call.method);
     
     // Peripheral service methods
     if ([@"startPeripheralService" isEqualToString:call.method]) {
@@ -80,13 +77,11 @@
         result(@(scanning));
         
     } else {
-        NSLog(@"[BLE] Unknown method: %@", call.method);
         result(FlutterMethodNotImplemented);
     }
 }
 
 - (void)startPeripheralServiceWithPeerID:(NSString *)peerID nickname:(NSString *)nickname {
-    NSLog(@"[BLE] Starting peripheral service with peerID: %@, nickname: %@", peerID, nickname);
     
     if (!self.blePeripheralService) {
         self.blePeripheralService = [[BlePeripheralService alloc] init];
@@ -107,28 +102,23 @@
 }
 
 - (void)stopPeripheralService {
-    NSLog(@"[BLE] Stopping peripheral service");
     [self.blePeripheralService stopService];
 }
 
 - (void)sendAnnounceMessage {
-    NSLog(@"[BLE] Sending announce message");
     [self.blePeripheralService sendAnnounceMessage];
 }
 
 - (void)sendKeyExchangeMessage {
-    NSLog(@"[BLE] Sending key exchange message");
     [self.blePeripheralService sendKeyExchangeMessage];
 }
 
 - (void)sendMessage:(NSData *)data {
-    NSLog(@"[BLE] Sending message: %lu bytes", (unsigned long)data.length);
     [self.blePeripheralService sendMessage:data];
 }
 
 // Central service methods implementation
 - (void)startScanning {
-    NSLog(@"[BLE] Starting scanning");
     
     if (!self.bleCentralService) {
         self.bleCentralService = [[BleCentralService alloc] init];
@@ -145,8 +135,7 @@
                     arguments[@"publicKeyDigest"] = [FlutterStandardTypedData typedDataWithBytes:publicKeyDigest];
                 }
                 
-                NSLog(@"[BLE] Calling onPeerDiscovered with peerId: %@", peerId);
-                [weakSelf.methodChannel invokeMethod:@"onPeerDiscovered" arguments:arguments];
+                        [weakSelf.methodChannel invokeMethod:@"onPeerDiscovered" arguments:arguments];
             });
         };
     }
@@ -155,7 +144,6 @@
 }
 
 - (void)stopScanning {
-    NSLog(@"[BLE] Stopping scanning");
     [self.bleCentralService stopScanning];
 }
 

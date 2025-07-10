@@ -187,7 +187,6 @@ class IOSBlePeripheralService {
         final args = call.arguments;
         final peerId = args?['peerId'] as String? ?? '';
         final publicKeyDigest = args?['publicKeyDigest'] as Uint8List?;
-        print('🔵 Peer discovered from iOS: peerId=$peerId, digest=${publicKeyDigest?.length} bytes');
 
         if (peerId.isEmpty) return;
 

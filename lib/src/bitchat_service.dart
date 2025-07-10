@@ -518,8 +518,17 @@ class BitchatService {
   }
   
   void _log(String message) {
-    _logger.i(message);
-    _logController.add(message);
+    // Reduce log output for better performance
+    // Only log important messages to avoid spam
+    if (message.contains('Error') || 
+        message.contains('Failed') || 
+        message.contains('Successfully') ||
+        message.contains('Started') ||
+        message.contains('Initializing') ||
+        message.contains('Status changed')) {
+      _logger.i(message);
+      _logController.add(message);
+    }
   }
   
   Future<bool> _sendMessage(BitchatMessage message) async {
@@ -538,10 +547,8 @@ class BitchatService {
   
   Future<BitchatPacket?> _messageToPacket(BitchatMessage message) async {
     try {
-      // Serialize message to JSON string (compatible with Swift bitchat)
-      final messageJson = message.toJson();
-      final jsonString = jsonEncode(messageJson);
-      final payload = Uint8List.fromList(jsonString.codeUnits);
+      // Create Swift-compatible binary payload
+      final payload = _createSwiftCompatiblePayload(message);
       
       // Handle private messages with encryption
       Uint8List finalPayload = payload;
@@ -575,15 +582,23 @@ class BitchatService {
         }
       }
       
+      // Determine recipientID for packet
+      Uint8List? packetRecipientID;
+      if (message.recipientID != null) {
+        // Private message - use specific recipient
+        packetRecipientID = Uint8List.fromList(message.recipientID!.codeUnits);
+      } else {
+        // Broadcast message - use special broadcast recipient (8 bytes of 0xFF)
+        packetRecipientID = Uint8List.fromList(List<int>.generate(8, (_) => 0xFF));
+      }
+      
       return BitchatPacket(
         version: BinaryProtocol.version,
         type: message.type,
         ttl: 7, // Default TTL
         timestamp: message.timestamp,
         senderID: Uint8List.fromList(_myPeerID!.codeUnits),
-        recipientID: message.recipientID != null 
-            ? Uint8List.fromList(message.recipientID!.codeUnits)
-            : null,
+        recipientID: packetRecipientID,
         payload: finalPayload,
         signature: signature,
       );
@@ -593,29 +608,85 @@ class BitchatService {
     }
   }
   
+  /// Create Swift-compatible binary payload
+  Uint8List _createSwiftCompatiblePayload(BitchatMessage message) {
+    final buffer = <int>[];
+    
+    // Flags (1 byte)
+    int flags = 0;
+    // isRelay = false (not supported in Flutter version)
+    if (message.recipientID != null) flags |= 0x02; // isPrivate
+    // hasOriginalSender = false
+    // hasRecipientNickname = false
+    if (message.senderID.isNotEmpty) flags |= 0x10; // hasSenderPeerID
+    // hasMentions = false
+    if (message.channel != null) flags |= 0x40; // hasChannel
+    // isEncrypted = false
+    buffer.add(flags);
+    
+    // Timestamp (8 bytes, big-endian)
+    final timestampMillis = message.timestamp;
+    for (int i = 7; i >= 0; i--) {
+      buffer.add((timestampMillis >> (i * 8)) & 0xFF);
+    }
+    
+    // ID
+    final idBytes = message.id.codeUnits;
+    buffer.add(idBytes.length.clamp(0, 255));
+    buffer.addAll(idBytes.take(255));
+    
+    // Sender (nickname)
+    final senderBytes = message.senderNickname.codeUnits;
+    buffer.add(senderBytes.length.clamp(0, 255));
+    buffer.addAll(senderBytes.take(255));
+    
+    // Content (2 bytes length + content)
+    final contentBytes = message.content.codeUnits;
+    buffer.add((contentBytes.length >> 8) & 0xFF);
+    buffer.add(contentBytes.length & 0xFF);
+    buffer.addAll(contentBytes.take(65535));
+    
+    // Optional fields
+    // Original sender = null
+    // Recipient nickname = null
+    
+    // Sender peer ID
+    if (message.senderID.isNotEmpty) {
+      final peerIdBytes = message.senderID.codeUnits;
+      buffer.add(peerIdBytes.length.clamp(0, 255));
+      buffer.addAll(peerIdBytes.take(255));
+    }
+    
+    // Mentions = null
+    
+    // Channel
+    if (message.channel != null) {
+      final channelBytes = message.channel!.codeUnits;
+      buffer.add(channelBytes.length.clamp(0, 255));
+      buffer.addAll(channelBytes.take(255));
+    }
+    
+    return Uint8List.fromList(buffer);
+  }
+  
   void _handleIncomingMessage(BitchatMessage message) {
     try {
+      print('🟩 [DEBUG] _handleIncomingMessage called with message: ${message.content}');
+      print('🟩 [DEBUG] Message type: ${message.type}, channel: ${message.channel}, recipientID: ${message.recipientID}');
+      
       // Add to stream
       _messageController.add(message);
+      print('🟩 [DEBUG] Message added to stream');
       
-      // Enhanced logging for debugging
-      _log('📨 Received message:');
-      _log('   Content: "${message.content}"');
-      _log('   Sender: ${message.senderNickname} (${message.senderID})');
-      _log('   Type: ${message.type}');
-      _log('   Channel: ${message.channel ?? "main chat"}');
-      _log('   Is Private: ${message.recipientID != null}');
-      _log('   Timestamp: ${DateTime.fromMillisecondsSinceEpoch(message.timestamp)}');
-      
-      // Log message type details
+      // Simplified logging - only log important message types
       switch (message.type) {
         case MessageTypes.message:
           if (message.recipientID != null) {
-            _log('🔒 Private message from ${message.senderNickname}');
+            _log('🔒 Private message from ${message.senderNickname}: ${message.content}');
           } else if (message.channel != null) {
-            _log('📢 Channel message in ${message.channel} from ${message.senderNickname}');
+            _log('📢 Channel message in ${message.channel} from ${message.senderNickname}: ${message.content}');
           } else {
-            _log('📢 Broadcast message from ${message.senderNickname}');
+            _log('📢 Broadcast message from ${message.senderNickname}: ${message.content}');
           }
           break;
         case MessageTypes.announce:
@@ -689,12 +760,12 @@ class BitchatService {
         _discoveredPeers[existingIndex] = peer;
       } else {
         _discoveredPeers.add(peer);
+        // Only log new peer discoveries to reduce spam
+        _log('New peer discovered: ${peer.nickname}');
       }
       
       // Add to stream
       _peerController.add(peer);
-      
-      _log('Peer discovered: ${peer.nickname}');
     } catch (e) {
       _log('Error handling peer discovery: $e');
     }
@@ -756,18 +827,12 @@ class BitchatService {
   /// Handle incoming BLE message
   void _handleIncomingBleMessage(String senderId, Uint8List data) {
     try {
-      _log('📨 Received BLE message from $senderId: ${data.length} bytes');
-      _log('📨 Raw data (hex): ${data.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}');
-      
       // Convert binary data to packet
       final packet = BitchatPacket.fromBinaryData(data);
       if (packet == null) {
         _log('❌ Failed to decode packet from $senderId');
         return;
       }
-      
-      _log('✅ Decoded packet: type=${packet.type}, sender=${String.fromCharCodes(packet.senderID)}');
-      _log('📦 Packet details: recipientID=${packet.recipientID?.map((b) => b.toRadixString(16).padLeft(2, '0')).join() ?? "null"}, payloadLen=${packet.payload.length}');
       
       // Route the packet through message router
       _messageRouter.routeMessage(packet).then((shouldRelay) {

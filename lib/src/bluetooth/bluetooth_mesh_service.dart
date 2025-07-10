@@ -174,49 +174,31 @@ class BluetoothMeshService {
       // Use native iOS scanning if available
       if (Platform.isIOS) {
         try {
-          print('🔵 [BLE] Using native iOS scanning');
           final success = await _iosService.startScanning(onPeer: (peerId, publicKeyDigest) {
-            print('🔵 [BLE] Native iOS discovered peerId: $peerId');
-            
             // Filter out our own broadcasts and ensure peerId is valid
             if (peerId.isNotEmpty && 
                 peerId != _myPeerID &&
                 peerId.length == 8) {
-              print('🔵 [BLE] Calling onPeerDiscovered with peerId: $peerId');
               if (onPeerDiscovered != null) {
                 onPeerDiscovered!(peerId, publicKeyDigest);
               }
-            } else {
-              print('🔵 [BLE] Skipping device: peerId=$peerId (length=${peerId.length}), myPeerID=$_myPeerID');
             }
           });
           
           if (success) {
             _isScanning = true;
-            print('🔵 [BLE] Native iOS scanning started successfully');
             return;
-          } else {
-            print('🔵 [BLE] Native iOS scanning failed, falling back to FlutterBluePlus');
           }
         } catch (e) {
-          print('🔵 [BLE] Native iOS scanning not available: $e, falling back to FlutterBluePlus');
+          // Fall back to FlutterBluePlus silently
         }
       }
       
       // Fallback to FlutterBluePlus scanning for Android or if iOS native fails
-      print('🔵 [BLE] Using FlutterBluePlus scanning');
       _scanSubscription = FlutterBluePlus.scan().listen((scanResult) async {
         final adv = scanResult.advertisementData;
         final peerId = adv.localName ?? scanResult.device.name;
         final device = scanResult.device;
-        
-        print('🔵 [BLE] Discovered device: ${device.platformName}');
-        print('🔵 [BLE] Device name: ${scanResult.device.name}');
-        print('🔵 [BLE] Advertisement localName: ${adv.localName}');
-        print('🔵 [BLE] Advertisement serviceUUIDs: ${adv.serviceUuids}');
-        print('🔵 [BLE] Advertisement manufacturerData: ${adv.manufacturerData}');
-        print('🔵 [BLE] Using peerId: $peerId');
-        print('🔵 [BLE] My peerId: $_myPeerID');
         
         // Check if device has our service UUID
         final hasServiceUUID = adv.serviceUuids.any((uuid) => 
@@ -224,7 +206,6 @@ class BluetoothMeshService {
         );
         
         if (!hasServiceUUID) {
-          print('🔵 [BLE] Skipping device: does not have our service UUID');
           return;
         }
         
@@ -232,7 +213,6 @@ class BluetoothMeshService {
         if (adv.manufacturerData.isNotEmpty) {
           final firstData = adv.manufacturerData.values.first;
           publicKeyDigest = Uint8List.fromList(firstData);
-          print('🔵 [BLE] Found manufacturer data: ${firstData.length} bytes');
         }
         
         // Filter out our own broadcasts and ensure peerId is valid
@@ -240,23 +220,11 @@ class BluetoothMeshService {
             peerId.isNotEmpty && 
             peerId != _myPeerID &&
             peerId.length == 8) { // Swift only connects to 8-char peer IDs
-          print('🔵 [BLE] Calling onPeerDiscovered with peerId: $peerId');
           if (onPeerDiscovered != null) {
             onPeerDiscovered!(peerId, publicKeyDigest);
           }
           // Auto connect to discovered peer
           await _connectToPeer(peerId, device);
-        } else {
-          print('🔵 [BLE] Skipping device: peerId=$peerId (length=${peerId?.length}), myPeerID=$_myPeerID, onPeerDiscovered=${onPeerDiscovered != null}');
-          if (peerId == null) {
-            print('🔵 [BLE] peerId is null');
-          } else if (peerId.isEmpty) {
-            print('🔵 [BLE] peerId is empty');
-          } else if (peerId == _myPeerID) {
-            print('🔵 [BLE] peerId matches my own peer ID');
-          } else if (peerId.length != 8) {
-            print('🔵 [BLE] peerId length is not 8: ${peerId.length}');
-          }
         }
       });
       _isScanning = true;

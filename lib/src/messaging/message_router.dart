@@ -180,6 +180,7 @@ class MessageRouter {
       print('🟩 [DEBUG] isPrivateMessage: $isPrivateMessage, recipientID length: ${packet.recipientID?.length ?? 0}');
       if (packet.recipientID != null) {
         print('🟩 [DEBUG] recipientID bytes: ${packet.recipientID!.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}');
+        print('🟩 [DEBUG] Is broadcast recipient: ${_isBroadcastRecipient(packet.recipientID!)}');
       }
       
       Uint8List messagePayload = packet.payload;
@@ -219,46 +220,173 @@ class MessageRouter {
         }
       }
       
-      // Parse message content from payload
+      // Parse Swift format message payload
       try {
-        final messageJson = String.fromCharCodes(messagePayload);
-        final messageData = Map<String, dynamic>.from(jsonDecode(messageJson));
-        
-        // Extract message fields
-        final messageId = messageData['id'] as String? ?? '';
-        final content = messageData['content'] as String? ?? '';
-        final channel = messageData['channel'] as String?;
-        final recipientID = messageData['recipientID'] as String?;
-        final senderNickname = messageData['senderNickname'] as String? ?? 'Unknown';
-        final timestamp = messageData['timestamp'] as int? ?? packet.timestamp;
-        
-        // Create BitchatMessage object
-        final message = BitchatMessage(
-          id: messageId,
-          type: packet.type,
-          content: content,
-          senderID: senderID,
-          senderNickname: senderNickname,
-          timestamp: timestamp,
-          recipientID: recipientID,
-          channel: channel,
-          isEncrypted: isPrivateMessage,
-        );
-        
-        // Notify about received message
-        if (_onMessageReceived != null) {
-          _onMessageReceived!(message);
+        print('🟩 [DEBUG] Attempting to parse Swift message payload...');
+        final message = _parseSwiftMessagePayload(messagePayload, senderID);
+        if (message != null) {
+          print('🟩 [DEBUG] Successfully parsed message: ${message.content}');
+          // Notify about received message
+          if (_onMessageReceived != null) {
+            print('🟩 [DEBUG] Calling message received callback');
+            _onMessageReceived!(message);
+          } else {
+            print('🟩 [DEBUG] No message received callback set!');
+          }
+          
+          print('Received unified message from $senderID: ${message.content}');
+          if (message.channel != null) {
+            print('Channel message in ${message.channel}');
+          }
+          return packet.ttl > 0; // Relay if TTL > 0
+        } else {
+          print('🟩 [DEBUG] Failed to parse Swift message payload');
+          return false;
         }
-        
-        print('Received unified message from $senderID: $content');
-        return packet.ttl > 0; // Relay if TTL > 0
       } catch (e) {
-        print('Failed to parse message payload: $e');
+        print('🟩 [DEBUG] Failed to parse Swift message payload: $e');
         return false;
       }
     } catch (e) {
       print('Error handling unified message: $e');
       return false;
+    }
+  }
+  
+  /// Parse Swift format message payload
+  BitchatMessage? _parseSwiftMessagePayload(Uint8List data, String senderID) {
+    try {
+      if (data.length < 13) {
+        print('Payload too short: ${data.length} bytes');
+        return null;
+      }
+      
+      var offset = 0;
+      
+      // Flags
+      final flags = data[offset]; offset++;
+      final isRelay = (flags & 0x01) != 0;
+      final isPrivate = (flags & 0x02) != 0;
+      final hasOriginalSender = (flags & 0x04) != 0;
+      final hasRecipientNickname = (flags & 0x08) != 0;
+      final hasSenderPeerID = (flags & 0x10) != 0;
+      final hasMentions = (flags & 0x20) != 0;
+      final hasChannel = (flags & 0x40) != 0;
+      final isEncrypted = (flags & 0x80) != 0;
+      
+      print('🟩 [DEBUG] Message flags: isRelay=$isRelay, isPrivate=$isPrivate, hasChannel=$hasChannel, isEncrypted=$isEncrypted');
+      
+      // Timestamp (8 bytes, big-endian)
+      if (offset + 8 > data.length) return null;
+      int timestampMillis = 0;
+      for (int i = 0; i < 8; i++) {
+        timestampMillis = (timestampMillis << 8) | data[offset + i];
+      }
+      offset += 8;
+      final timestamp = DateTime.fromMillisecondsSinceEpoch(timestampMillis);
+      
+      // ID
+      if (offset >= data.length) return null;
+      final idLength = data[offset]; offset++;
+      if (offset + idLength > data.length) return null;
+      final id = String.fromCharCodes(data.sublist(offset, offset + idLength));
+      offset += idLength;
+      
+      // Sender
+      if (offset >= data.length) return null;
+      final senderLength = data[offset]; offset++;
+      if (offset + senderLength > data.length) return null;
+      final sender = String.fromCharCodes(data.sublist(offset, offset + senderLength));
+      offset += senderLength;
+      
+      // Content (2 bytes length)
+      if (offset + 2 > data.length) return null;
+      final contentLength = (data[offset] << 8) | data[offset + 1];
+      offset += 2;
+      if (offset + contentLength > data.length) return null;
+      
+      String content;
+      Uint8List? encryptedContent;
+      if (isEncrypted) {
+        encryptedContent = data.sublist(offset, offset + contentLength);
+        content = ""; // Empty placeholder for encrypted content
+      } else {
+        content = String.fromCharCodes(data.sublist(offset, offset + contentLength));
+        encryptedContent = null;
+      }
+      offset += contentLength;
+      
+      // Optional fields
+      String? originalSender;
+      if (hasOriginalSender && offset < data.length) {
+        final length = data[offset]; offset++;
+        if (offset + length <= data.length) {
+          originalSender = String.fromCharCodes(data.sublist(offset, offset + length));
+          offset += length;
+        }
+      }
+      
+      String? recipientNickname;
+      if (hasRecipientNickname && offset < data.length) {
+        final length = data[offset]; offset++;
+        if (offset + length <= data.length) {
+          recipientNickname = String.fromCharCodes(data.sublist(offset, offset + length));
+          offset += length;
+        }
+      }
+      
+      String? senderPeerID;
+      if (hasSenderPeerID && offset < data.length) {
+        final length = data[offset]; offset++;
+        if (offset + length <= data.length) {
+          senderPeerID = String.fromCharCodes(data.sublist(offset, offset + length));
+          offset += length;
+        }
+      }
+      
+      // Mentions array
+      List<String>? mentions;
+      if (hasMentions && offset < data.length) {
+        final mentionCount = data[offset]; offset++;
+        if (mentionCount > 0) {
+          mentions = [];
+          for (int i = 0; i < mentionCount && offset < data.length; i++) {
+            final length = data[offset]; offset++;
+            if (offset + length <= data.length) {
+              final mention = String.fromCharCodes(data.sublist(offset, offset + length));
+              mentions!.add(mention);
+              offset += length;
+            }
+          }
+        }
+      }
+      
+      // Channel
+      String? channel;
+      if (hasChannel && offset < data.length) {
+        final length = data[offset]; offset++;
+        if (offset + length <= data.length) {
+          channel = String.fromCharCodes(data.sublist(offset, offset + length));
+          offset += length;
+        }
+      }
+      
+      print('🟩 [DEBUG] Parsed message: content="$content", channel=$channel, isPrivate=$isPrivate');
+      
+      return BitchatMessage(
+        id: id,
+        type: MessageTypes.message,
+        content: content,
+        senderID: senderID,
+        senderNickname: sender,
+        timestamp: timestamp.millisecondsSinceEpoch,
+        recipientID: isPrivate ? senderID : null, // For private messages
+        channel: channel,
+        isEncrypted: isEncrypted,
+      );
+    } catch (e) {
+      print('Error parsing Swift message payload: $e');
+      return null;
     }
   }
   
