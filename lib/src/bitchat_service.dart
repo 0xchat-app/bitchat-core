@@ -314,13 +314,10 @@ class BitchatService {
   }
   
   /// Send a channel message
-  Future<bool> sendChannelMessage(String channel, String content) async {
+  Future<bool> sendChannelMessage(String? channel, String content) async {
+    _log('sendChannelMessage: ${_status != BitchatStatus.running}');
+
     if (_status != BitchatStatus.running) return false;
-    
-    if (channel.isEmpty) {
-      _log('Channel name cannot be empty');
-      return false;
-    }
     
     if (content.isEmpty) {
       _log('Message content cannot be empty');
@@ -515,17 +512,8 @@ class BitchatService {
   }
   
   void _log(String message) {
-    // Reduce log output for better performance
-    // Only log important messages to avoid spam
-    if (message.contains('Error') || 
-        message.contains('Failed') || 
-        message.contains('Successfully') ||
-        message.contains('Started') ||
-        message.contains('Initializing') ||
-        message.contains('Status changed')) {
       _logger.i(message);
       _logController.add(message);
-    }
   }
   
   Future<bool> _sendMessage(BitchatMessage message) async {
@@ -534,8 +522,23 @@ class BitchatService {
       final packet = await _messageToPacket(message);
       if (packet == null) return false;
       
-      // Route message
-      return await _messageRouter.routeMessage(packet);
+      // Send directly to BLE without routing (to avoid message loop)
+      try {
+        // Convert packet to binary data
+        final binaryData = packet.toBinaryData();
+        if (binaryData != null) {
+          // Send via BLE
+          await _bluetoothService.sendMessage(binaryData);
+          _log('Sent message via BLE: ${message.content}');
+          return true;
+        } else {
+          _log('Failed to convert packet to binary data');
+          return false;
+        }
+      } catch (e) {
+        _log('Failed to send message via BLE: $e');
+        return false;
+      }
     } catch (e) {
       _log('Error sending message: $e');
       return false;
