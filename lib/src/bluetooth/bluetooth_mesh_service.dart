@@ -161,11 +161,16 @@ class BluetoothMeshService {
   /// Start BLE scanning
   /// Scans for devices with matching service UUID (same as Swift)
   Future<void> startScanning({PeerDiscoveredCallback? onPeer}) async {
-    if (_isScanning) return;
+    if (_isScanning) {
+      print('🔵 [BLE] Already scanning, skipping duplicate start');
+      return;
+    }
     onPeerDiscovered = onPeer;
     
-    // Scan for devices with matching service UUID (same as Swift implementation)
-    _scanSubscription = FlutterBluePlus.scan().listen((scanResult) async {
+    try {
+      print('🔵 [BLE] Starting scan...');
+      // Scan for devices with matching service UUID (same as Swift implementation)
+      _scanSubscription = FlutterBluePlus.scan().listen((scanResult) async {
       final adv = scanResult.advertisementData;
       final peerId = adv.localName ?? scanResult.device.name;
       final device = scanResult.device;
@@ -177,6 +182,16 @@ class BluetoothMeshService {
       print('🔵 [BLE] Advertisement manufacturerData: ${adv.manufacturerData}');
       print('🔵 [BLE] Using peerId: $peerId');
       print('🔵 [BLE] My peerId: $_myPeerID');
+      
+      // Check if device has our service UUID
+      final hasServiceUUID = adv.serviceUuids.any((uuid) => 
+        uuid.toString().toUpperCase() == serviceUUID.toUpperCase()
+      );
+      
+      if (!hasServiceUUID) {
+        print('🔵 [BLE] Skipping device: does not have our service UUID');
+        return;
+      }
       
       Uint8List? publicKeyDigest;
       if (adv.manufacturerData.isNotEmpty) {
@@ -198,10 +213,25 @@ class BluetoothMeshService {
         await _connectToPeer(peerId, device);
       } else {
         print('🔵 [BLE] Skipping device: peerId=$peerId (length=${peerId?.length}), myPeerID=$_myPeerID, onPeerDiscovered=${onPeerDiscovered != null}');
+        if (peerId == null) {
+          print('🔵 [BLE] peerId is null');
+        } else if (peerId.isEmpty) {
+          print('🔵 [BLE] peerId is empty');
+        } else if (peerId == _myPeerID) {
+          print('🔵 [BLE] peerId matches my own peer ID');
+        } else if (peerId.length != 8) {
+          print('🔵 [BLE] peerId length is not 8: ${peerId.length}');
+        }
       }
     });
     
     _isScanning = true;
+    print('🔵 [BLE] Scanning started successfully');
+  } catch (e) {
+    print('🔴 [BLE] Failed to start scanning: $e');
+    print('🔴 [BLE] Error type: ${e.runtimeType}');
+    // Don't set _isScanning to true if scanning failed
+  }
   }
 
   /// Stop BLE scanning
@@ -239,16 +269,21 @@ class BluetoothMeshService {
     try {
       print('🔵 Connecting to peer: $peerId (${device.platformName})');
       print('🔵 Device ID: ${device.remoteId}');
+      print('🔵 Device name: ${device.name}');
       await device.connect(autoConnect: false);
       print('🔵 Connected to peer: $peerId');
       final services = await device.discoverServices();
       print('🔵 Discovered ${services.length} services for peer: $peerId');
       for (final service in services) {
+        print('🔵 Service UUID: ${service.uuid}');
         if (service.uuid.toString().toUpperCase() == serviceUUID.toUpperCase()) {
           print('🔵 Found bitchat service for peer: $peerId');
+          print('🔵 Service has ${service.characteristics.length} characteristics');
           for (final characteristic in service.characteristics) {
+            print('🔵 Characteristic UUID: ${characteristic.uuid}');
             if (characteristic.uuid.toString().toUpperCase() == characteristicUUID.toUpperCase()) {
               print('🔵 Found bitchat characteristic for peer: $peerId');
+              print('🔵 Characteristic properties: ${characteristic.properties}');
               await characteristic.setNotifyValue(true);
               print('🔵 Subscribed to notifications from peer: $peerId');
               // Listen for notifications

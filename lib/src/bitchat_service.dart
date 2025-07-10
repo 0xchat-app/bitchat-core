@@ -119,7 +119,10 @@ class BitchatService {
           bluetoothScanStatus != PermissionStatus.granted ||
           bluetoothConnectStatus != PermissionStatus.granted) {
         _log('Bluetooth permissions not granted - continuing for testing');
+        _log('This may cause scanning to fail, but advertising should still work');
         // Continue for testing purposes
+      } else {
+        _log('All Bluetooth permissions granted');
       }
       
       // Initialize services
@@ -138,11 +141,17 @@ class BitchatService {
       _storeAndForward.setPeerOnlineCallback(_handlePeerOnline);
       
       // Set up BLE service callbacks
-      await _bluetoothService.startScanning(
-        onPeer: (peerId, publicKeyDigest) {
-          _handlePeerDiscovered(peerId, publicKeyDigest);
-        },
-      );
+      try {
+        await _bluetoothService.startScanning(
+          onPeer: (peerId, publicKeyDigest) {
+            _handlePeerDiscovered(peerId, publicKeyDigest);
+          },
+        );
+        _log('BLE scanning started successfully');
+      } catch (e) {
+        _log('BLE scanning failed: $e');
+        _log('This may be due to permission issues, but advertising should still work');
+      }
       
       // Set up message received callback for BLE
       _bluetoothService.setMessageReceivedCallback((senderId, data) {
@@ -163,6 +172,7 @@ class BitchatService {
   Future<bool> start({required String peerID, String? nickname}) async {
     if (_status == BitchatStatus.running) return true;
     
+    // Only initialize if not already initialized
     if (_status == BitchatStatus.stopped) {
       final initialized = await initialize();
       if (!initialized) return false;
