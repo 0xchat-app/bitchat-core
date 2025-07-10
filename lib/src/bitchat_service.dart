@@ -391,7 +391,6 @@ class BitchatService {
     if (_status != BitchatStatus.running) return false;
     
     if (_myNickname == null || _myNickname!.isEmpty) {
-      _log('Cannot send announce: no nickname set');
       return false;
     }
     
@@ -407,9 +406,7 @@ class BitchatService {
         payload: Uint8List.fromList(_myNickname!.codeUnits),
         signature: null, // No signature for announce messages
       );
-      
-      _log('Sending announce packet: type=${announcePacket.type}, senderID=${_myPeerID}, nickname=${_myNickname}');
-      
+
       // Send directly to BLE
       try {
         // Convert packet to binary data
@@ -833,7 +830,6 @@ class BitchatService {
         _log('❌ Failed to decode packet from $senderId');
         return;
       }
-      
       // Route the packet through message router
       _messageRouter.routeMessage(packet).then((shouldRelay) {
         if (shouldRelay) {

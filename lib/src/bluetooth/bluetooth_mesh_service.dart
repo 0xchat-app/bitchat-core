@@ -27,7 +27,7 @@ class BluetoothMeshService {
   static const String serviceUUID = 'F47B5E2D-4A9E-4C5A-9B3F-8E1D2C3A4B5C';
   static const String characteristicUUID = 'A1B2C3D4-E5F6-4A5B-8C9D-0E1F2A3B4C5D';
 
-  StreamSubscription<ScanResult>? _scanSubscription;
+  StreamSubscription<List<ScanResult>>? _scanSubscription;
   PeerDiscoveredCallback? onPeerDiscovered;
   MessageReceivedCallback? onMessageReceived;
 
@@ -160,7 +160,7 @@ class BluetoothMeshService {
   }
 
   /// Start BLE scanning
-  /// Uses native iOS implementation when available, fallback to FlutterBluePlus
+  /// Uses FlutterBluePlus for cross-platform scanning
   Future<void> startScanning({PeerDiscoveredCallback? onPeer}) async {
     if (_isScanning) {
       print('🔵 [BLE] Already scanning, skipping duplicate start');
@@ -169,69 +169,70 @@ class BluetoothMeshService {
     onPeerDiscovered = onPeer;
     
     try {
-      print('🔵 [BLE] Starting scan...');
-
-      // Use native iOS scanning if available
-      if (Platform.isIOS) {
-        try {
-          final success = await _iosService.startScanning(onPeer: (peerId, publicKeyDigest) {
-            // Filter out our own broadcasts and ensure peerId is valid
-            if (peerId.isNotEmpty && 
-                peerId != _myPeerID &&
-                peerId.length == 8) {
-              if (onPeerDiscovered != null) {
-                onPeerDiscovered!(peerId, publicKeyDigest);
-              }
-            }
-          });
-          
-          if (success) {
-            _isScanning = true;
-            return;
-          }
-        } catch (e) {
-          // Fall back to FlutterBluePlus silently
-        }
-      }
+      // Cancel previous subscription if exists
+      await _scanSubscription?.cancel();
+      _scanSubscription = null;
       
-      // Fallback to FlutterBluePlus scanning for Android or if iOS native fails
-      _scanSubscription = FlutterBluePlus.scan().listen((scanResult) async {
-        final adv = scanResult.advertisementData;
-        final peerId = adv.localName ?? scanResult.device.name;
-        final device = scanResult.device;
-        
-        // Check if device has our service UUID
-        final hasServiceUUID = adv.serviceUuids.any((uuid) => 
-          uuid.toString().toUpperCase() == serviceUUID.toUpperCase()
-        );
-        
-        if (!hasServiceUUID) {
-          return;
-        }
-        
-        Uint8List? publicKeyDigest;
-        if (adv.manufacturerData.isNotEmpty) {
-          final firstData = adv.manufacturerData.values.first;
-          publicKeyDigest = Uint8List.fromList(firstData);
-        }
-        
-        // Filter out our own broadcasts and ensure peerId is valid
-        if (peerId != null && 
-            peerId.isNotEmpty && 
-            peerId != _myPeerID &&
-            peerId.length == 8) { // Swift only connects to 8-char peer IDs
-          if (onPeerDiscovered != null) {
-            onPeerDiscovered!(peerId, publicKeyDigest);
+      print('🔵 [BLE] Using FlutterBluePlus scanning');
+      
+      // Set up scan results listener first
+      _scanSubscription = FlutterBluePlus.onScanResults.listen((results) async {
+        for (final scanResult in results) {
+          final adv = scanResult.advertisementData;
+          final peerId = adv.localName ?? scanResult.device.platformName;
+          final device = scanResult.device;
+          
+          // Check if device has our service UUID
+          final hasServiceUUID = adv.serviceUuids.any((uuid) => 
+            uuid.toString().toUpperCase() == serviceUUID.toUpperCase()
+          );
+          
+          if (!hasServiceUUID) {
+            continue;
           }
-          // Auto connect to discovered peer
-          await _connectToPeer(peerId, device);
+          
+          Uint8List? publicKeyDigest;
+          if (adv.manufacturerData.isNotEmpty) {
+            final firstData = adv.manufacturerData.values.first;
+            publicKeyDigest = Uint8List.fromList(firstData);
+            print('🔵 [BLE] Found manufacturer data: ${firstData.length} bytes');
+          }
+          
+          // Filter out our own broadcasts and ensure peerId is valid
+          if (peerId != null && 
+              peerId.isNotEmpty && 
+              peerId != _myPeerID &&
+              peerId.length == 8) { // Swift only connects to 8-char peer IDs
+            if (onPeerDiscovered != null) {
+              onPeerDiscovered!(peerId, publicKeyDigest);
+            }
+            // Auto connect to discovered peer
+            await _connectToPeer(peerId, device);
+          } else {
+            print('🔵 [BLE] Skipping device: peerId=$peerId (length=${peerId?.length}), myPeerID=$_myPeerID, onPeerDiscovered=${onPeerDiscovered != null}');
+            if (peerId == null) {
+              print('🔵 [BLE] peerId is null');
+            } else if (peerId.isEmpty) {
+              print('🔵 [BLE] peerId is empty');
+            } else if (peerId == _myPeerID) {
+              print('🔵 [BLE] peerId matches my own peer ID');
+            } else if (peerId.length != 8) {
+              print('🔵 [BLE] peerId length is not 8: ${peerId.length}');
+            }
+          }
         }
       });
+      
+      // Start scanning
+      await FlutterBluePlus.startScan();
       _isScanning = true;
       print('🔵 [BLE] FlutterBluePlus scanning started successfully');
     } catch (e) {
       print('🔴 [BLE] Failed to start scanning: $e');
       print('🔴 [BLE] Error type: ${e.runtimeType}');
+      // Clean up on failure
+      await _scanSubscription?.cancel();
+      _scanSubscription = null;
       // Don't set _isScanning to true if scanning failed
     }
   }
@@ -240,17 +241,15 @@ class BluetoothMeshService {
   Future<void> stopScanning() async {
     if (!_isScanning) return;
     
-    // Stop native iOS scanning if active
-    if (Platform.isIOS) {
-      try {
-        await _iosService.stopScanning();
-        print('🔵 [BLE] Native iOS scanning stopped');
-      } catch (e) {
-        print('🔵 [BLE] Error stopping native iOS scanning: $e');
-      }
+    try {
+      // Stop FlutterBluePlus scanning
+      await FlutterBluePlus.stopScan();
+      print('🔵 [BLE] FlutterBluePlus scanning stopped');
+    } catch (e) {
+      print('🔵 [BLE] Error stopping FlutterBluePlus scanning: $e');
     }
     
-    // Stop FlutterBluePlus scanning if active
+    // Cancel scan results subscription
     await _scanSubscription?.cancel();
     _scanSubscription = null;
     _isScanning = false;
@@ -279,32 +278,18 @@ class BluetoothMeshService {
   /// Connect to a discovered peer and subscribe to notify
   Future<void> _connectToPeer(String peerId, BluetoothDevice device) async {
     if (_connectedDevices.contains(peerId)) {
-      print('🔵 Already connected to peer: $peerId');
       return;
     }
     try {
-      print('🔵 Connecting to peer: $peerId (${device.platformName})');
-      print('🔵 Device ID: ${device.remoteId}');
-      print('🔵 Device name: ${device.platformName}');
       await device.connect(autoConnect: false);
-      print('🔵 Connected to peer: $peerId');
       final services = await device.discoverServices();
-      print('🔵 Discovered ${services.length} services for peer: $peerId');
       for (final service in services) {
-        print('🔵 Service UUID: ${service.uuid}');
         if (service.uuid.toString().toUpperCase() == serviceUUID.toUpperCase()) {
-          print('🔵 Found bitchat service for peer: $peerId');
-          print('🔵 Service has ${service.characteristics.length} characteristics');
           for (final characteristic in service.characteristics) {
-            print('🔵 Characteristic UUID: ${characteristic.uuid}');
             if (characteristic.uuid.toString().toUpperCase() == characteristicUUID.toUpperCase()) {
-              print('🔵 Found bitchat characteristic for peer: $peerId');
-              print('🔵 Characteristic properties: ${characteristic.properties}');
               await characteristic.setNotifyValue(true);
-              print('🔵 Subscribed to notifications from peer: $peerId');
               // Listen for notifications
               characteristic.lastValueStream.listen((value) {
-                print('🔵 Received notification from peer $peerId: ${value.length} bytes');
                 if (onMessageReceived != null) {
                   onMessageReceived!(peerId, Uint8List.fromList(value));
                 }

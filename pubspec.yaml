@@ -11,7 +11,7 @@ dependencies:
     sdk: flutter
   
   # Bluetooth and networking
-  flutter_blue_plus: ^1.31.15
+  flutter_blue_plus: ^1.35.5
   flutter_ble_peripheral: ^1.2.6
   permission_handler: ^11.3.1
   

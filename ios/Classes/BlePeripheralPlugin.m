@@ -134,8 +134,8 @@
                 if (publicKeyDigest) {
                     arguments[@"publicKeyDigest"] = [FlutterStandardTypedData typedDataWithBytes:publicKeyDigest];
                 }
-                
-                        [weakSelf.methodChannel invokeMethod:@"onPeerDiscovered" arguments:arguments];
+
+                [weakSelf.methodChannel invokeMethod:@"onPeerDiscovered" arguments:arguments];
             });
         };
     }
