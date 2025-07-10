@@ -1,0 +1,22 @@
+name: bitchat_core
+description: Core bitchat protocol and Bluetooth mesh networking for Flutter
+version: 2.0.0
+
+environment:
+  sdk: ">=3.0.5 <4.0.0"
+  flutter: ">=3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+# Platform-specific code
+flutter:
+  plugin:
+    platforms:
+      ios:
+        pluginClass: BitchatCorePlugin 
