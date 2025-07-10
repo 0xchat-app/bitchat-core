@@ -6,6 +6,7 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:logger/logger.dart';
+import 'dart:convert'; // Added for jsonEncode
 
 import 'protocol/binary_protocol.dart';
 import 'protocol/bitchat_packet.dart';
@@ -143,6 +144,11 @@ class BitchatService {
         },
       );
       
+      // Set up message received callback for BLE
+      _bluetoothService.setMessageReceivedCallback((senderId, data) {
+        _handleIncomingBleMessage(senderId, data);
+      });
+      
       _updateStatus(BitchatStatus.stopped);
       _log('Bitchat service initialized successfully');
       return true;
@@ -274,14 +280,15 @@ class BitchatService {
     
     // Check if we have encryption keys for this peer
     if (!_encryptionService.hasSharedSecret(recipientID)) {
-      _log('No encryption keys for peer $recipientID, message will be queued');
-      // TODO: Queue message for when keys are available
+      _log('No encryption keys for peer $recipientID, initiating key exchange');
+      // Initiate key exchange first
+      await _initiateKeyExchange(recipientID);
     }
     
     try {
       final message = BitchatMessage(
         id: _generateMessageID(),
-        type: MessageTypes.message,  // Use unified message type
+        type: MessageTypes.message,  // Use unified message type like Swift
         recipientID: recipientID,
         content: content,
         timestamp: DateTime.now().millisecondsSinceEpoch,
@@ -313,7 +320,7 @@ class BitchatService {
     try {
       final message = BitchatMessage(
         id: _generateMessageID(),
-        type: MessageTypes.message,  // Use unified message type
+        type: MessageTypes.message,  // Use unified message type like Swift
         channel: channel,
         content: content,
         timestamp: DateTime.now().millisecondsSinceEpoch,
@@ -324,6 +331,47 @@ class BitchatService {
       return await _sendMessage(message);
     } catch (e) {
       _log('Failed to send channel message: $e');
+      return false;
+    }
+  }
+  
+  /// Send a broadcast message to all connected peers (main chat)
+  Future<bool> sendBroadcastMessage(String content) async {
+    if (_status != BitchatStatus.running) {
+      _log('Service not running, cannot send broadcast message');
+      return false;
+    }
+    
+    if (content.isEmpty) {
+      _log('Broadcast message content cannot be empty');
+      return false;
+    }
+    
+    try {
+      _log('📢 Sending broadcast message: "$content"');
+      
+      final message = BitchatMessage(
+        id: _generateMessageID(),
+        type: MessageTypes.message,  // Use unified message type like Swift
+        content: content,
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+        senderID: _myPeerID!,
+        senderNickname: _myNickname!,
+        // No recipientID = broadcast to all
+        recipientID: null,
+        // No channel = main chat
+        channel: null,
+      );
+      
+      final success = await _sendMessage(message);
+      if (success) {
+        _log('✅ Broadcast message sent successfully');
+      } else {
+        _log('❌ Failed to send broadcast message');
+      }
+      return success;
+    } catch (e) {
+      _log('❌ Error sending broadcast message: $e');
       return false;
     }
   }
@@ -480,9 +528,9 @@ class BitchatService {
   
   Future<BitchatPacket?> _messageToPacket(BitchatMessage message) async {
     try {
-      // Serialize message to JSON string
+      // Serialize message to JSON string (compatible with Swift bitchat)
       final messageJson = message.toJson();
-      final jsonString = messageJson.toString();
+      final jsonString = jsonEncode(messageJson);
       final payload = Uint8List.fromList(jsonString.codeUnits);
       
       // Handle private messages with encryption
@@ -540,9 +588,43 @@ class BitchatService {
       // Add to stream
       _messageController.add(message);
       
-      _log('Received message: ${message.content}');
+      // Enhanced logging for debugging
+      _log('📨 Received message:');
+      _log('   Content: "${message.content}"');
+      _log('   Sender: ${message.senderNickname} (${message.senderID})');
+      _log('   Type: ${message.type}');
+      _log('   Channel: ${message.channel ?? "main chat"}');
+      _log('   Is Private: ${message.recipientID != null}');
+      _log('   Timestamp: ${DateTime.fromMillisecondsSinceEpoch(message.timestamp)}');
+      
+      // Log message type details
+      switch (message.type) {
+        case MessageTypes.message:
+          if (message.recipientID != null) {
+            _log('🔒 Private message from ${message.senderNickname}');
+          } else if (message.channel != null) {
+            _log('📢 Channel message in ${message.channel} from ${message.senderNickname}');
+          } else {
+            _log('📢 Broadcast message from ${message.senderNickname}');
+          }
+          break;
+        case MessageTypes.announce:
+          _log('📢 Announce from ${message.senderNickname}');
+          break;
+        case MessageTypes.keyExchange:
+          _log('🔑 Key exchange from ${message.senderID}');
+          break;
+        case MessageTypes.channelJoin:
+          _log('➕ Channel join: ${message.channel} by ${message.senderNickname}');
+          break;
+        case MessageTypes.channelLeave:
+          _log('➖ Channel leave: ${message.channel} by ${message.senderNickname}');
+          break;
+        default:
+          _log('❓ Unknown message type: ${message.type}');
+      }
     } catch (e) {
-      _log('Error handling incoming message: $e');
+      _log('❌ Error handling incoming message: $e');
     }
   }
   
@@ -622,5 +704,71 @@ class BitchatService {
   
   String _generateMessageID() {
     return DateTime.now().millisecondsSinceEpoch.toString();
+  }
+  
+  /// Initiate key exchange with a peer
+  Future<void> _initiateKeyExchange(String peerID) async {
+    try {
+      _log('Initiating key exchange with peer: $peerID');
+      
+      // Get our public key data
+      final publicKeyData = await _encryptionService.getCombinedPublicKeyData();
+      if (publicKeyData == null) {
+        _log('Failed to get public key data for key exchange');
+        return;
+      }
+      
+      // Create key exchange packet
+      final keyExchangePacket = BitchatPacket(
+        version: BinaryProtocol.version,
+        type: MessageTypes.keyExchange,
+        ttl: 3, // Allow relay for better reach
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+        senderID: Uint8List.fromList(_myPeerID!.codeUnits),
+        recipientID: Uint8List.fromList(peerID.codeUnits),
+        payload: publicKeyData,
+        signature: null, // No signature for key exchange
+      );
+      
+      // Send key exchange packet
+      final binaryData = keyExchangePacket.toBinaryData();
+      if (binaryData != null) {
+        await _bluetoothService.sendMessage(binaryData);
+        _log('Sent key exchange to peer: $peerID');
+      } else {
+        _log('Failed to encode key exchange packet');
+      }
+    } catch (e) {
+      _log('Failed to initiate key exchange: $e');
+    }
+  }
+  
+  /// Handle incoming BLE message
+  void _handleIncomingBleMessage(String senderId, Uint8List data) {
+    try {
+      _log('📨 Received BLE message from $senderId: ${data.length} bytes');
+      _log('📨 Raw data (hex): ${data.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}');
+      
+      // Convert binary data to packet
+      final packet = BitchatPacket.fromBinaryData(data);
+      if (packet == null) {
+        _log('❌ Failed to decode packet from $senderId');
+        return;
+      }
+      
+      _log('✅ Decoded packet: type=${packet.type}, sender=${String.fromCharCodes(packet.senderID)}');
+      _log('📦 Packet details: recipientID=${packet.recipientID?.map((b) => b.toRadixString(16).padLeft(2, '0')).join() ?? "null"}, payloadLen=${packet.payload.length}');
+      
+      // Route the packet through message router
+      _messageRouter.routeMessage(packet).then((shouldRelay) {
+        if (shouldRelay) {
+          _log('Relaying packet from $senderId');
+          // TODO: Implement packet relay
+        }
+      });
+      
+    } catch (e) {
+      _log('Error handling incoming BLE message: $e');
+    }
   }
 } 

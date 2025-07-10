@@ -8,6 +8,7 @@ import '../models/message.dart';
 import '../models/peer.dart';
 import '../encryption/encryption_service.dart';
 import '../utils/message_padding.dart';
+import 'dart:convert'; // Added for jsonDecode
 
 /// Message router for bitchat network
 class MessageRouter {
@@ -51,18 +52,23 @@ class MessageRouter {
   /// Route a message through the network
   Future<bool> routeMessage(BitchatPacket packet) async {
     try {
+      print('🔄 [MessageRouter] Routing packet: type=${packet.type}, sender=${String.fromCharCodes(packet.senderID)}');
+      
       // Check if message is expired
       if (packet.isExpired) {
+        print('❌ [MessageRouter] Packet expired');
         return false;
       }
       
       // Check for duplicate messages
       if (_processedMessages.contains(packet.messageID)) {
+        print('❌ [MessageRouter] Duplicate message: ${packet.messageID}');
         return false;
       }
       
       // Mark message as processed
       _processedMessages.add(packet.messageID);
+      print('✅ [MessageRouter] Message marked as processed: ${packet.messageID}');
       
       // Handle different message types
       switch (packet.type) {
@@ -71,10 +77,10 @@ class MessageRouter {
         case MessageTypes.announce:
           return await _handleAnnounce(packet);
         case MessageTypes.message:
-          return await _handleChatMessage(packet);
+          return await _handleUnifiedMessage(packet); // Use unified message handler
         case MessageTypes.channelMessage:
         case MessageTypes.privateMessage:
-          return await _handleChatMessage(packet);
+          return await _handleLegacyMessage(packet); // Handle legacy message types
 
         default:
           // Unknown message type, relay if TTL > 0
@@ -157,14 +163,24 @@ class MessageRouter {
     }
   }
   
-  /// Handle chat messages (channel and private)
-  Future<bool> _handleChatMessage(BitchatPacket packet) async {
+  /// Handle unified messages (type 4) - compatible with Swift bitchat
+  /// This handles both private and channel messages in a unified format
+  Future<bool> _handleUnifiedMessage(BitchatPacket packet) async {
     try {
       final senderID = String.fromCharCodes(packet.senderID);
       
+      print('🟩 [DEBUG] Processing unified message from $senderID');
+      print('🟩 [DEBUG] Packet type: ${packet.type}, recipientID: ${packet.recipientID?.map((b) => b.toRadixString(16).padLeft(2, '0')).join() ?? "null"}');
+      
       // Check if this is a private message for us
+      // Swift bitchat uses SpecialRecipients.broadcast = Data(repeating: 0xFF, count: 8)
       final isPrivateMessage = packet.recipientID != null && 
-          String.fromCharCodes(packet.recipientID!) != 'broadcast';
+          !_isBroadcastRecipient(packet.recipientID!);
+      
+      print('🟩 [DEBUG] isPrivateMessage: $isPrivateMessage, recipientID length: ${packet.recipientID?.length ?? 0}');
+      if (packet.recipientID != null) {
+        print('🟩 [DEBUG] recipientID bytes: ${packet.recipientID!.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}');
+      }
       
       Uint8List messagePayload = packet.payload;
       
@@ -201,58 +217,55 @@ class MessageRouter {
           print('Failed to decrypt private message from $senderID: $e');
           return false;
         }
-      } else {
-        // Handle public message signature verification
-        if (packet.signature != null) {
-          try {
-            // Check if we have the peer's signing key
-            final peerSigningKey = _encryptionService!.getPeerSigningKey(senderID);
-            if (peerSigningKey != null) {
-              final isValid = await _encryptionService!.verify(
-                packet.payload, 
-                packet.signature!, 
-                senderID
-              );
-              if (!isValid) {
-                print('Invalid signature from $senderID');
-                return false;
-              }
-            } else {
-              print('No signing key for $senderID, skipping signature verification');
-            }
-          } catch (e) {
-            print('Failed to verify signature from $senderID: $e');
-            // Continue without signature verification for public messages
-          }
+      }
+      
+      // Parse message content from payload
+      try {
+        final messageJson = String.fromCharCodes(messagePayload);
+        final messageData = Map<String, dynamic>.from(jsonDecode(messageJson));
+        
+        // Extract message fields
+        final messageId = messageData['id'] as String? ?? '';
+        final content = messageData['content'] as String? ?? '';
+        final channel = messageData['channel'] as String?;
+        final recipientID = messageData['recipientID'] as String?;
+        final senderNickname = messageData['senderNickname'] as String? ?? 'Unknown';
+        final timestamp = messageData['timestamp'] as int? ?? packet.timestamp;
+        
+        // Create BitchatMessage object
+        final message = BitchatMessage(
+          id: messageId,
+          type: packet.type,
+          content: content,
+          senderID: senderID,
+          senderNickname: senderNickname,
+          timestamp: timestamp,
+          recipientID: recipientID,
+          channel: channel,
+          isEncrypted: isPrivateMessage,
+        );
+        
+        // Notify about received message
+        if (_onMessageReceived != null) {
+          _onMessageReceived!(message);
         }
+        
+        print('Received unified message from $senderID: $content');
+        return packet.ttl > 0; // Relay if TTL > 0
+      } catch (e) {
+        print('Failed to parse message payload: $e');
+        return false;
       }
-      
-      // Parse message content
-      final messageContent = String.fromCharCodes(messagePayload);
-      
-      // Create message object
-      final message = BitchatMessage(
-        id: packet.messageID,
-        type: packet.type,
-        content: messageContent,
-        senderID: senderID,
-        senderNickname: 'User${senderID.substring(0, 4)}',
-        timestamp: packet.timestamp,
-        isEncrypted: isPrivateMessage,
-        recipientID: isPrivateMessage ? String.fromCharCodes(packet.recipientID!) : null,
-      );
-      
-      // Notify message received
-      if (_onMessageReceived != null) {
-        _onMessageReceived!(message);
-      }
-      
-      // Relay if TTL > 0
-      return packet.ttl > 0;
     } catch (e) {
-      print('Error handling chat message: $e');
+      print('Error handling unified message: $e');
       return false;
     }
+  }
+  
+  /// Handle legacy message types (for backward compatibility)
+  Future<bool> _handleLegacyMessage(BitchatPacket packet) async {
+    // Legacy message handling - similar to unified but with different parsing
+    return await _handleUnifiedMessage(packet);
   }
   
 
@@ -276,5 +289,11 @@ class MessageRouter {
   void clearProcessedMessages() {
     _processedMessages.clear();
     _processedKeyExchanges.clear();
+  }
+  
+  /// Check if recipientID is the broadcast recipient (8 bytes of 0xFF)
+  bool _isBroadcastRecipient(Uint8List recipientID) {
+    return recipientID.length == 8 && 
+           recipientID.every((byte) => byte == 0xFF);
   }
 } 

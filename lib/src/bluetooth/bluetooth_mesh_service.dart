@@ -38,6 +38,7 @@ class BluetoothMeshService {
   // Connected devices tracking
   final Set<String> _connectedDevices = <String>{};
   final Map<String, BluetoothDevice> _connectedPeripherals = <String, BluetoothDevice>{};
+  final Map<String, List<BluetoothCharacteristic>> _deviceCharacteristics = <String, List<BluetoothCharacteristic>>{};
 
   /// Start BLE advertising with peripheral service
   /// Note: Android supports manufacturerData, iOS only supports localName/serviceUuid
@@ -115,8 +116,10 @@ class BluetoothMeshService {
       }
       
       // Use same format as Swift: localName = peerID, serviceUUID for discovery
+      // Swift expects 8-character peer IDs, so we need to use a 8-char identifier
+      final deviceName = peerId.length == 8 ? peerId : peerId.substring(0, 8);
       final advertiseData = AdvertiseData(
-        localName: peerId, // Device name for peerId transmission (matches Swift)
+        localName: deviceName, // Device name for peerId transmission (matches Swift)
         serviceUuid: serviceUUID, // Same UUID as Swift implementation
         manufacturerId: publicKeyDigest != null ? 0xFFFF : null, // Android only
         manufacturerData: publicKeyDigest, // Android only - for additional data
@@ -129,11 +132,7 @@ class BluetoothMeshService {
       print('🔵 BLE advertising started successfully');
       
       // Start scanning to discover bitchat peers
-      startScanning(onPeer: (peerId, publicKeyDigest) {
-        print('🔵 Discovered bitchat peer: $peerId');
-        // Add to connected devices for now (simplified)
-        _connectedDevices.add(peerId);
-      });
+      startScanning();
     } catch (e) {
       print('🔴 BLE advertising failed: $e');
       print('🔴 Error type: ${e.runtimeType}');
@@ -166,33 +165,39 @@ class BluetoothMeshService {
     onPeerDiscovered = onPeer;
     
     // Scan for devices with matching service UUID (same as Swift implementation)
-    _scanSubscription = FlutterBluePlus.scan().listen((scanResult) {
+    _scanSubscription = FlutterBluePlus.scan().listen((scanResult) async {
       final adv = scanResult.advertisementData;
       final peerId = adv.localName ?? scanResult.device.name;
+      final device = scanResult.device;
       
-      print('🔵 [BLE] Discovered device: ${scanResult.device.name}');
+      print('🔵 [BLE] Discovered device: ${device.platformName}');
+      print('🔵 [BLE] Device name: ${scanResult.device.name}');
       print('🔵 [BLE] Advertisement localName: ${adv.localName}');
+      print('🔵 [BLE] Advertisement serviceUUIDs: ${adv.serviceUuids}');
       print('🔵 [BLE] Advertisement manufacturerData: ${adv.manufacturerData}');
       print('🔵 [BLE] Using peerId: $peerId');
+      print('🔵 [BLE] My peerId: $_myPeerID');
       
       Uint8List? publicKeyDigest;
-      // Android: manufacturerData may contain custom data
       if (adv.manufacturerData.isNotEmpty) {
-        // Take first manufacturerData and convert to Uint8List
         final firstData = adv.manufacturerData.values.first;
         publicKeyDigest = Uint8List.fromList(firstData);
         print('🔵 [BLE] Found manufacturer data: ${firstData.length} bytes');
       }
       
-      // Filter out our own broadcasts
+      // Filter out our own broadcasts and ensure peerId is valid
       if (peerId != null && 
           peerId.isNotEmpty && 
-          peerId != _myPeerID && 
-          onPeerDiscovered != null) {
+          peerId != _myPeerID &&
+          peerId.length == 8) { // Swift only connects to 8-char peer IDs
         print('🔵 [BLE] Calling onPeerDiscovered with peerId: $peerId');
-        onPeerDiscovered!(peerId, publicKeyDigest);
+        if (onPeerDiscovered != null) {
+          onPeerDiscovered!(peerId, publicKeyDigest);
+        }
+        // Auto connect to discovered peer
+        await _connectToPeer(peerId, device);
       } else {
-        print('🔵 [BLE] Skipping device: peerId=$peerId, myPeerID=$_myPeerID, onPeerDiscovered=${onPeerDiscovered != null}');
+        print('🔵 [BLE] Skipping device: peerId=$peerId (length=${peerId?.length}), myPeerID=$_myPeerID, onPeerDiscovered=${onPeerDiscovered != null}');
       }
     });
     
@@ -225,6 +230,49 @@ class BluetoothMeshService {
   /// Get connected devices count
   int get connectedDevicesCount => _connectedDevices.length;
   
+  /// Connect to a discovered peer and subscribe to notify
+  Future<void> _connectToPeer(String peerId, BluetoothDevice device) async {
+    if (_connectedDevices.contains(peerId)) {
+      print('🔵 Already connected to peer: $peerId');
+      return;
+    }
+    try {
+      print('🔵 Connecting to peer: $peerId (${device.platformName})');
+      print('🔵 Device ID: ${device.remoteId}');
+      await device.connect(autoConnect: false);
+      print('🔵 Connected to peer: $peerId');
+      final services = await device.discoverServices();
+      print('🔵 Discovered ${services.length} services for peer: $peerId');
+      for (final service in services) {
+        if (service.uuid.toString().toUpperCase() == serviceUUID.toUpperCase()) {
+          print('🔵 Found bitchat service for peer: $peerId');
+          for (final characteristic in service.characteristics) {
+            if (characteristic.uuid.toString().toUpperCase() == characteristicUUID.toUpperCase()) {
+              print('🔵 Found bitchat characteristic for peer: $peerId');
+              await characteristic.setNotifyValue(true);
+              print('🔵 Subscribed to notifications from peer: $peerId');
+              // Listen for notifications
+              characteristic.lastValueStream.listen((value) {
+                print('🔵 Received notification from peer $peerId: ${value.length} bytes');
+                if (onMessageReceived != null) {
+                  onMessageReceived!(peerId, Uint8List.fromList(value));
+                }
+              });
+              _deviceCharacteristics[peerId] = [characteristic];
+              break;
+            }
+          }
+          break;
+        }
+      }
+      _connectedDevices.add(peerId);
+      _connectedPeripherals[peerId] = device;
+      print('🔵 Successfully connected to peer: $peerId');
+    } catch (e) {
+      print('🔴 Failed to connect to peer $peerId: $e');
+    }
+  }
+  
   /// Send message via BLE
   Future<bool> sendMessage(Uint8List data) async {
     try {
@@ -251,6 +299,28 @@ class BluetoothMeshService {
         }
       } catch (e) {
         print('🔵 Android BLE service not available: $e');
+      }
+      
+      // Send to connected peripherals
+      var sentToPeripherals = 0;
+      for (final entry in _deviceCharacteristics.entries) {
+        final peerId = entry.key;
+        final characteristics = entry.value;
+        
+        for (final characteristic in characteristics) {
+          try {
+            await characteristic.write(data, withoutResponse: true);
+            sentToPeripherals++;
+            print('🔵 Message sent to peripheral: $peerId');
+          } catch (e) {
+            print('🔴 Failed to send message to peripheral $peerId: $e');
+          }
+        }
+      }
+      
+      if (sentToPeripherals > 0) {
+        print('🔵 Message sent to $sentToPeripherals peripherals');
+        return true;
       }
       
       print('🔴 No BLE service available for sending message');
