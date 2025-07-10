@@ -3,6 +3,7 @@
 /// This is the core data structure for all bitchat communication
 /// containing message metadata, routing information, and payload.
 import 'dart:typed_data';
+import 'binary_protocol.dart';
 
 class BitchatPacket {
   /// Protocol version (currently 1)
@@ -105,5 +106,15 @@ class BitchatPacket {
   @override
   int get hashCode {
     return Object.hash(version, type, timestamp, senderID.length, payload.length);
+  }
+  
+  /// Convert packet to binary data for transmission
+  Uint8List? toBinaryData() {
+    return BinaryProtocol.encode(this);
+  }
+  
+  /// Create packet from binary data
+  static BitchatPacket? fromBinaryData(Uint8List data) {
+    return BinaryProtocol.decode(data);
   }
 } 

@@ -4,13 +4,20 @@
 /// over the bitchat network.
 class MessageTypes {
   // System messages (0-9)
-  static const int ping = 0;
-  static const int pong = 1;
-  static const int peerDiscovery = 2;
-  static const int keyExchange = 3;
-  static const int channelAnnouncement = 4;
+  static const int announce = 1;  // Peer announcement with nickname - matches Swift
+  static const int keyExchange = 2;  // Key exchange for encryption
+  static const int leave = 3;  // Leave notification
+  static const int message = 4;  // All user messages (private and broadcast) - matches Swift
+  static const int fragmentStart = 5;  // Message fragment start
+  static const int fragmentContinue = 6;  // Message fragment continue
+  static const int fragmentEnd = 7;  // Message fragment end
+  static const int channelAnnounce = 8;  // Channel announcement
+  static const int channelRetention = 9;  // Channel retention status
+  static const int deliveryAck = 10;  // Delivery acknowledgment
+  static const int deliveryStatusRequest = 11;  // Delivery status request
+  static const int readReceipt = 12;  // Read receipt
   
-  // Chat messages (10-19)
+  // Chat messages (10-19) - legacy types, use message = 4 instead
   static const int channelMessage = 10;
   static const int privateMessage = 11;
   static const int channelJoin = 12;
@@ -51,12 +58,17 @@ class MessageTypes {
   
   /// Check if message type is a chat message
   static bool isChatMessage(int type) {
-    return type >= 10 && type <= 19;
+    return type == message || (type >= 10 && type <= 19);
   }
   
   /// Check if message type is a user management message
   static bool isUserMessage(int type) {
     return type >= 20 && type <= 29;
+  }
+  
+  /// Check if message type is an announce message
+  static bool isAnnounceMessage(int type) {
+    return type == announce;
   }
   
   /// Check if message type is a store and forward message
@@ -82,11 +94,18 @@ class MessageTypes {
   /// Get human readable name for message type
   static String getName(int type) {
     switch (type) {
-      case ping: return 'Ping';
-      case pong: return 'Pong';
-      case peerDiscovery: return 'Peer Discovery';
+      case announce: return 'Announce';
       case keyExchange: return 'Key Exchange';
-      case channelAnnouncement: return 'Channel Announcement';
+      case leave: return 'Leave';
+      case message: return 'Message';
+      case fragmentStart: return 'Fragment Start';
+      case fragmentContinue: return 'Fragment Continue';
+      case fragmentEnd: return 'Fragment End';
+      case channelAnnounce: return 'Channel Announce';
+      case channelRetention: return 'Channel Retention';
+      case deliveryAck: return 'Delivery Ack';
+      case deliveryStatusRequest: return 'Delivery Status Request';
+      case readReceipt: return 'Read Receipt';
       case channelMessage: return 'Channel Message';
       case privateMessage: return 'Private Message';
       case channelJoin: return 'Channel Join';

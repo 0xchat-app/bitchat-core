@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import '../protocol/bitchat_packet.dart';
 import '../protocol/message_types.dart';
 import '../models/message.dart';
+import '../models/peer.dart';
 import '../encryption/encryption_service.dart';
 import '../utils/message_padding.dart';
 
@@ -67,13 +68,14 @@ class MessageRouter {
       switch (packet.type) {
         case MessageTypes.keyExchange:
           return await _handleKeyExchange(packet);
+        case MessageTypes.announce:
+          return await _handleAnnounce(packet);
+        case MessageTypes.message:
+          return await _handleChatMessage(packet);
         case MessageTypes.channelMessage:
         case MessageTypes.privateMessage:
           return await _handleChatMessage(packet);
-        case MessageTypes.ping:
-          return await _handlePing(packet);
-        case MessageTypes.pong:
-          return await _handlePong(packet);
+
         default:
           // Unknown message type, relay if TTL > 0
           return packet.ttl > 0;
@@ -118,6 +120,43 @@ class MessageRouter {
     }
   }
   
+  /// Handle announce messages
+  Future<bool> _handleAnnounce(BitchatPacket packet) async {
+    try {
+      final senderID = String.fromCharCodes(packet.senderID);
+      final nickname = String.fromCharCodes(packet.payload);
+      
+      // Create peer object
+      final peer = Peer(
+        id: senderID,
+        nickname: nickname,
+        lastSeen: DateTime.now(),
+        isConnected: true,
+      );
+      
+      // Notify about peer discovery
+      if (_onMessageReceived != null) {
+        // Create a system message to indicate peer connection
+        final systemMessage = BitchatMessage(
+          id: 'announce-${DateTime.now().millisecondsSinceEpoch}',
+          type: MessageTypes.announce,
+          content: 'Peer $nickname connected',
+          senderID: senderID,
+          senderNickname: nickname,
+          timestamp: packet.timestamp,
+          isEncrypted: false,
+        );
+        _onMessageReceived!(systemMessage);
+      }
+      
+      print('Received announce from peer: $senderID ($nickname)');
+      return packet.ttl > 0; // Relay announce messages
+    } catch (e) {
+      print('Error handling announce message: $e');
+      return false;
+    }
+  }
+  
   /// Handle chat messages (channel and private)
   Future<bool> _handleChatMessage(BitchatPacket packet) async {
     try {
@@ -132,16 +171,22 @@ class MessageRouter {
       if (isPrivateMessage) {
         // Handle private message decryption
         try {
-          // Verify signature if present
+          // Verify signature if present and we have the peer's signing key
           if (packet.signature != null) {
-            final isValid = await _encryptionService!.verify(
-              packet.payload, 
-              packet.signature!, 
-              senderID
-            );
-            if (!isValid) {
-              print('Invalid signature from $senderID');
-              return false;
+            // Check if we have the peer's signing key
+            final peerSigningKey = _encryptionService!.getPeerSigningKey(senderID);
+            if (peerSigningKey != null) {
+              final isValid = await _encryptionService!.verify(
+                packet.payload, 
+                packet.signature!, 
+                senderID
+              );
+              if (!isValid) {
+                print('Invalid signature from $senderID');
+                return false;
+              }
+            } else {
+              print('No signing key for $senderID, skipping signature verification');
             }
           }
           
@@ -160,14 +205,20 @@ class MessageRouter {
         // Handle public message signature verification
         if (packet.signature != null) {
           try {
-            final isValid = await _encryptionService!.verify(
-              packet.payload, 
-              packet.signature!, 
-              senderID
-            );
-            if (!isValid) {
-              print('Invalid signature from $senderID');
-              return false;
+            // Check if we have the peer's signing key
+            final peerSigningKey = _encryptionService!.getPeerSigningKey(senderID);
+            if (peerSigningKey != null) {
+              final isValid = await _encryptionService!.verify(
+                packet.payload, 
+                packet.signature!, 
+                senderID
+              );
+              if (!isValid) {
+                print('Invalid signature from $senderID');
+                return false;
+              }
+            } else {
+              print('No signing key for $senderID, skipping signature verification');
             }
           } catch (e) {
             print('Failed to verify signature from $senderID: $e');
@@ -204,17 +255,7 @@ class MessageRouter {
     }
   }
   
-  /// Handle ping messages
-  Future<bool> _handlePing(BitchatPacket packet) async {
-    // TODO: Implement ping/pong for peer discovery
-    return packet.ttl > 0;
-  }
-  
-  /// Handle pong messages
-  Future<bool> _handlePong(BitchatPacket packet) async {
-    // TODO: Implement ping/pong for peer discovery
-    return packet.ttl > 0;
-  }
+
   
   /// Create a new packet with decremented TTL
   BitchatPacket createRelayPacket(BitchatPacket originalPacket) {
