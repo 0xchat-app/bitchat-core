@@ -212,4 +212,4 @@ The service throws `BitchatError` exceptions for various error conditions:
 - `networkError` - Network communication error
 - `permissionDenied` - Required permissions not granted
 
-For more usage details, please refer to the source code and API documentation.
+For more usage details
