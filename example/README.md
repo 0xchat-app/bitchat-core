@@ -2,6 +2,8 @@
 
 This is a demo application demonstrating how to use the Bitchat Flutter Plugin.
 
+![Bitchat Flutter Plugin Demo Screenshot](https://image.nostr.build/31625c86439eef530546b8a1cece959257aec5d5c67c95a0fc4f5871002c527f.jpg)
+
 ## 🚀 Quick Start
 
 ### 1. Run Demo Application
