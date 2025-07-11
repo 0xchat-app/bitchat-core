@@ -169,19 +169,10 @@ class MessageRouter {
     try {
       final senderID = String.fromCharCodes(packet.senderID);
       
-      print('🟩 [DEBUG] Processing unified message from $senderID');
-      print('🟩 [DEBUG] Packet type: ${packet.type}, recipientID: ${packet.recipientID?.map((b) => b.toRadixString(16).padLeft(2, '0')).join() ?? "null"}');
-      
       // Check if this is a private message for us
       // Swift bitchat uses SpecialRecipients.broadcast = Data(repeating: 0xFF, count: 8)
       final isPrivateMessage = packet.recipientID != null && 
           !_isBroadcastRecipient(packet.recipientID!);
-      
-      print('🟩 [DEBUG] isPrivateMessage: $isPrivateMessage, recipientID length: ${packet.recipientID?.length ?? 0}');
-      if (packet.recipientID != null) {
-        print('🟩 [DEBUG] recipientID bytes: ${packet.recipientID!.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}');
-        print('🟩 [DEBUG] Is broadcast recipient: ${_isBroadcastRecipient(packet.recipientID!)}');
-      }
       
       Uint8List messagePayload = packet.payload;
       
@@ -222,16 +213,11 @@ class MessageRouter {
       
       // Parse Swift format message payload
       try {
-        print('🟩 [DEBUG] Attempting to parse Swift message payload...');
         final message = _parseSwiftMessagePayload(messagePayload, senderID);
         if (message != null) {
-          print('🟩 [DEBUG] Successfully parsed message: ${message.content}');
           // Notify about received message
           if (_onMessageReceived != null) {
-            print('🟩 [DEBUG] Calling message received callback');
             _onMessageReceived!(message);
-          } else {
-            print('🟩 [DEBUG] No message received callback set!');
           }
           
           print('Received unified message from $senderID: ${message.content}');
@@ -240,11 +226,10 @@ class MessageRouter {
           }
           return packet.ttl > 0; // Relay if TTL > 0
         } else {
-          print('🟩 [DEBUG] Failed to parse Swift message payload');
           return false;
         }
       } catch (e) {
-        print('🟩 [DEBUG] Failed to parse Swift message payload: $e');
+        print('Failed to parse Swift message payload: $e');
         return false;
       }
     } catch (e) {
@@ -274,7 +259,7 @@ class MessageRouter {
       final hasChannel = (flags & 0x40) != 0;
       final isEncrypted = (flags & 0x80) != 0;
       
-      print('🟩 [DEBUG] Message flags: isRelay=$isRelay, isPrivate=$isPrivate, hasChannel=$hasChannel, isEncrypted=$isEncrypted');
+
       
       // Timestamp (8 bytes, big-endian)
       if (offset + 8 > data.length) return null;
@@ -371,7 +356,7 @@ class MessageRouter {
         }
       }
       
-      print('🟩 [DEBUG] Parsed message: content="$content", channel=$channel, isPrivate=$isPrivate');
+
       
       return BitchatMessage(
         id: id,

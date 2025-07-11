@@ -671,12 +671,8 @@ class BitchatService {
   
   void _handleIncomingMessage(BitchatMessage message) {
     try {
-      print('🟩 [DEBUG] _handleIncomingMessage called with message: ${message.content}');
-      print('🟩 [DEBUG] Message type: ${message.type}, channel: ${message.channel}, recipientID: ${message.recipientID}');
-      
       // Add to stream
       _messageController.add(message);
-      print('🟩 [DEBUG] Message added to stream');
       
       // Simplified logging - only log important message types
       switch (message.type) {

@@ -26,13 +26,12 @@ class IOSBlePeripheralService {
       _messageController = StreamController<Map<String, dynamic>>.broadcast();
       _channel.setMethodCallHandler(_handleMethodCall);
       
-      _isInitialized = true;
-      print('🔵 iOS BLE peripheral service initialized');
-      return true;
-    } catch (e) {
-      print('🔴 Failed to initialize iOS BLE peripheral service: $e');
-      return false;
-    }
+              _isInitialized = true;
+        return true;
+      } catch (e) {
+        print('Failed to initialize iOS BLE peripheral service: $e');
+        return false;
+      }
   }
   
   /// Start BLE peripheral service
@@ -49,36 +48,33 @@ class IOSBlePeripheralService {
       final result = await _channel.invokeMethod('startPeripheralService', {
         'peerID': peerID,
         'nickname': nickname,
-      });
-      
-      print('🔵 iOS BLE peripheral service started: $result');
-      return result == true;
-    } catch (e) {
-      print('🔴 Failed to start iOS BLE peripheral service: $e');
-      return false;
-    }
+              });
+        
+        return result == true;
+      } catch (e) {
+        print('Failed to start iOS BLE peripheral service: $e');
+        return false;
+      }
   }
   
   /// Stop BLE peripheral service
   Future<bool> stopService() async {
-    try {
-      final result = await _channel.invokeMethod('stopPeripheralService');
-      print('🔵 iOS BLE peripheral service stopped: $result');
-      return result == true;
-    } catch (e) {
-      print('🔴 Failed to stop iOS BLE peripheral service: $e');
-      return false;
-    }
+          try {
+        final result = await _channel.invokeMethod('stopPeripheralService');
+        return result == true;
+      } catch (e) {
+        print('Failed to stop iOS BLE peripheral service: $e');
+        return false;
+      }
   }
   
   /// Send announce message
   Future<bool> sendAnnounceMessage() async {
     try {
       final result = await _channel.invokeMethod('sendAnnounceMessage');
-      print('🔵 Sent announce message: $result');
       return result == true;
     } catch (e) {
-      print('🔴 Failed to send announce message: $e');
+      print('Failed to send announce message: $e');
       return false;
     }
   }
@@ -87,10 +83,9 @@ class IOSBlePeripheralService {
   Future<bool> sendKeyExchangeMessage() async {
     try {
       final result = await _channel.invokeMethod('sendKeyExchangeMessage');
-      print('🔵 Sent key exchange message: $result');
       return result == true;
     } catch (e) {
-      print('🔴 Failed to send key exchange message: $e');
+      print('Failed to send key exchange message: $e');
       return false;
     }
   }
@@ -99,10 +94,9 @@ class IOSBlePeripheralService {
   Future<bool> sendMessage(Uint8List data) async {
     try {
       final result = await _channel.invokeMethod('sendMessage', {'data': data});
-      print('🔵 Sent message via iOS BLE: $result');
       return result == true;
     } catch (e) {
-      print('🔴 Failed to send message via iOS BLE: $e');
+      print('Failed to send message via iOS BLE: $e');
       return false;
     }
   }
@@ -119,10 +113,9 @@ class IOSBlePeripheralService {
     
     try {
       final result = await _channel.invokeMethod('startScanning');
-      print('🔵 iOS BLE scanning started: $result');
       return result == true;
     } catch (e) {
-      print('🔴 Failed to start iOS BLE scanning: $e');
+      print('Failed to start iOS BLE scanning: $e');
       return false;
     }
   }
@@ -131,10 +124,9 @@ class IOSBlePeripheralService {
   Future<bool> stopScanning() async {
     try {
       final result = await _channel.invokeMethod('stopScanning');
-      print('🔵 iOS BLE scanning stopped: $result');
       return result == true;
     } catch (e) {
-      print('🔴 Failed to stop iOS BLE scanning: $e');
+      print('Failed to stop iOS BLE scanning: $e');
       return false;
     }
   }
@@ -145,7 +137,7 @@ class IOSBlePeripheralService {
       final result = await _channel.invokeMethod('isScanning');
       return result == true;
     } catch (e) {
-      print('🔴 Failed to check scanning status: $e');
+      print('Failed to check scanning status: $e');
       return false;
     }
   }
@@ -174,7 +166,7 @@ class IOSBlePeripheralService {
         final senderId = args['senderId'] as String;
         final payload = args['payload'] as Uint8List;
         
-        print('🔵 Received message from iOS: senderId=$senderId, payload=${payload.length} bytes');
+
         
         // Add to message stream
         _messageController?.add({
@@ -201,7 +193,7 @@ class IOSBlePeripheralService {
         break;
         
       default:
-        print('🔵 Unknown method call from iOS: ${call.method}');
+
     }
   }
   

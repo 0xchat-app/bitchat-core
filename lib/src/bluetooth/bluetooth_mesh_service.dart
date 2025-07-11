@@ -55,9 +55,6 @@ class BluetoothMeshService {
     _myNickname = nickname;
     
     try {
-      print('🔵 Starting BLE advertising with peerId: $peerId');
-      print('🔵 Public key digest length: ${publicKeyDigest?.length ?? 0}');
-      
       // Start iOS peripheral service
       try {
         final iosStarted = await _iosService.startService(
@@ -65,32 +62,26 @@ class BluetoothMeshService {
           nickname: nickname,
         );
         if (iosStarted) {
-          print('🔵 iOS BLE peripheral service started');
-          
           // Listen for messages from iOS
           _iosService.messageStream.listen((message) {
             final senderId = message['senderId'] as String;
             final payload = message['payload'] as Uint8List;
-            print('🔵 Received message from iOS: senderId=$senderId, payload=${payload.length} bytes');
             
             if (onMessageReceived != null) {
               onMessageReceived!(senderId, payload);
             }
           });
-        } else {
-          print('🔵 iOS BLE peripheral service not available');
         }
       } catch (e) {
-        print('🔵 iOS BLE peripheral service not available: $e');
+        // iOS BLE peripheral service not available
       }
       
       // Start Android foreground service for persistent advertising
       try {
         const platform = MethodChannel('com.oxchat.lite/ble_service');
         await platform.invokeMethod('startBleService');
-        print('🔵 Android BLE service started');
       } catch (e) {
-        print('🔵 Android BLE service not available: $e');
+        // Android BLE service not available
       }
       
       // Wait for BLE peripheral to be ready (especially important for iOS)
@@ -101,19 +92,17 @@ class BluetoothMeshService {
           // Check if BLE is supported and ready
           isReady = await _blePeripheral.isSupported;
           if (!isReady) {
-            print('🔵 Waiting for BLE peripheral to be ready... (attempt ${attempts + 1})');
             await Future.delayed(Duration(milliseconds: 500));
             attempts++;
           }
         } catch (e) {
-          print('🔵 BLE peripheral not ready: $e');
           await Future.delayed(Duration(milliseconds: 500));
           attempts++;
         }
       }
       
       if (!isReady) {
-        print('🔴 BLE peripheral not ready after multiple attempts, continuing anyway...');
+        print('BLE peripheral not ready after multiple attempts, continuing anyway...');
       }
       
       // Use same format as Swift: localName = peerID, serviceUUID for discovery
@@ -126,17 +115,13 @@ class BluetoothMeshService {
         manufacturerData: publicKeyDigest, // Android only - for additional data
       );
       
-      print('🔵 AdvertiseData created: localName=${advertiseData.localName}, serviceUuid=${advertiseData.serviceUuid}');
-      
       await _blePeripheral.start(advertiseData: advertiseData);
       _isAdvertising = true;
-      print('🔵 BLE advertising started successfully');
       
       // Start scanning to discover bitchat peers
       startScanning();
     } catch (e) {
-      print('🔴 BLE advertising failed: $e');
-      print('🔴 Error type: ${e.runtimeType}');
+      print('BLE advertising failed: $e');
       rethrow;
     }
   }
@@ -150,9 +135,8 @@ class BluetoothMeshService {
     // Stop iOS peripheral service
     try {
       await _iosService.stopService();
-      print('🔵 iOS BLE peripheral service stopped');
     } catch (e) {
-      print('🔵 iOS BLE peripheral service stop failed: $e');
+      // iOS BLE peripheral service stop failed
     }
     
     await _blePeripheral.stop();
@@ -163,7 +147,6 @@ class BluetoothMeshService {
   /// Uses FlutterBluePlus for cross-platform scanning
   Future<void> startScanning({PeerDiscoveredCallback? onPeer}) async {
     if (_isScanning) {
-      print('🔵 [BLE] Already scanning, skipping duplicate start');
       return;
     }
     onPeerDiscovered = onPeer;
@@ -172,8 +155,6 @@ class BluetoothMeshService {
       // Cancel previous subscription if exists
       await _scanSubscription?.cancel();
       _scanSubscription = null;
-      
-      print('🔵 [BLE] Using FlutterBluePlus scanning');
       
       // Set up scan results listener first
       _scanSubscription = FlutterBluePlus.onScanResults.listen((results) async {
@@ -195,7 +176,6 @@ class BluetoothMeshService {
           if (adv.manufacturerData.isNotEmpty) {
             final firstData = adv.manufacturerData.values.first;
             publicKeyDigest = Uint8List.fromList(firstData);
-            print('🔵 [BLE] Found manufacturer data: ${firstData.length} bytes');
           }
           
           // Filter out our own broadcasts and ensure peerId is valid
@@ -208,17 +188,6 @@ class BluetoothMeshService {
             }
             // Auto connect to discovered peer
             await _connectToPeer(peerId, device);
-          } else {
-            print('🔵 [BLE] Skipping device: peerId=$peerId (length=${peerId?.length}), myPeerID=$_myPeerID, onPeerDiscovered=${onPeerDiscovered != null}');
-            if (peerId == null) {
-              print('🔵 [BLE] peerId is null');
-            } else if (peerId.isEmpty) {
-              print('🔵 [BLE] peerId is empty');
-            } else if (peerId == _myPeerID) {
-              print('🔵 [BLE] peerId matches my own peer ID');
-            } else if (peerId.length != 8) {
-              print('🔵 [BLE] peerId length is not 8: ${peerId.length}');
-            }
           }
         }
       });
@@ -226,10 +195,8 @@ class BluetoothMeshService {
       // Start scanning
       await FlutterBluePlus.startScan();
       _isScanning = true;
-      print('🔵 [BLE] FlutterBluePlus scanning started successfully');
     } catch (e) {
-      print('🔴 [BLE] Failed to start scanning: $e');
-      print('🔴 [BLE] Error type: ${e.runtimeType}');
+      print('Failed to start scanning: $e');
       // Clean up on failure
       await _scanSubscription?.cancel();
       _scanSubscription = null;
@@ -244,16 +211,14 @@ class BluetoothMeshService {
     try {
       // Stop FlutterBluePlus scanning
       await FlutterBluePlus.stopScan();
-      print('🔵 [BLE] FlutterBluePlus scanning stopped');
     } catch (e) {
-      print('🔵 [BLE] Error stopping FlutterBluePlus scanning: $e');
+      // Error stopping FlutterBluePlus scanning
     }
     
     // Cancel scan results subscription
     await _scanSubscription?.cancel();
     _scanSubscription = null;
     _isScanning = false;
-    print('🔵 [BLE] Scanning stopped');
   }
 
 
@@ -303,26 +268,22 @@ class BluetoothMeshService {
       }
       _connectedDevices.add(peerId);
       _connectedPeripherals[peerId] = device;
-      print('🔵 Successfully connected to peer: $peerId');
     } catch (e) {
-      print('🔴 Failed to connect to peer $peerId: $e');
+      print('Failed to connect to peer $peerId: $e');
     }
   }
   
   /// Send message via BLE
   Future<bool> sendMessage(Uint8List data) async {
     try {
-      print('🔵 Sending message via BLE: ${data.length} bytes');
-      
       // Send via iOS peripheral service if available
       try {
         final success = await _iosService.sendMessage(data);
         if (success) {
-          print('🔵 Message sent via iOS peripheral service');
           return true;
         }
       } catch (e) {
-        print('🔵 iOS peripheral service not available: $e');
+        // iOS peripheral service not available
       }
       
       // Send via Android BLE service if available
@@ -330,11 +291,10 @@ class BluetoothMeshService {
         const platform = MethodChannel('com.oxchat.lite/ble_service');
         final result = await platform.invokeMethod('sendMessage', {'data': data});
         if (result == true) {
-          print('🔵 Message sent via Android BLE service');
           return true;
         }
       } catch (e) {
-        print('🔵 Android BLE service not available: $e');
+        // Android BLE service not available
       }
       
       // Send to connected peripherals
@@ -347,22 +307,20 @@ class BluetoothMeshService {
           try {
             await characteristic.write(data, withoutResponse: true);
             sentToPeripherals++;
-            print('🔵 Message sent to peripheral: $peerId');
           } catch (e) {
-            print('🔴 Failed to send message to peripheral $peerId: $e');
+            print('Failed to send message to peripheral $peerId: $e');
           }
         }
       }
       
       if (sentToPeripherals > 0) {
-        print('🔵 Message sent to $sentToPeripherals peripherals');
         return true;
       }
       
-      print('🔴 No BLE service available for sending message');
+      print('No BLE service available for sending message');
       return false;
     } catch (e) {
-      print('🔴 Failed to send message via BLE: $e');
+      print('Failed to send message via BLE: $e');
       return false;
     }
   }
