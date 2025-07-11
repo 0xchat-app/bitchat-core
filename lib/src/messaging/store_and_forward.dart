@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 import '../protocol/bitchat_packet.dart';
+import '../utils/string_encoding.dart';
 
 /// Stored message for offline delivery
 class StoredMessage {
@@ -111,13 +112,13 @@ class StoreAndForward {
   /// Store a message for offline delivery
   Future<void> storeMessage(BitchatPacket packet, {bool isFavorite = false}) async {
     try {
-      final senderID = String.fromCharCodes(packet.senderID);
+      final senderID = StringEncoding.safeBytesToString(packet.senderID);
       final recipientID = packet.recipientID != null 
-          ? String.fromCharCodes(packet.recipientID!)
+          ? StringEncoding.safeBytesToString(packet.recipientID!)
           : null;
       
       // Parse message content
-      final content = String.fromCharCodes(packet.payload);
+      final content = StringEncoding.safeBytesToString(packet.payload);
       
       // Create stored message
       final storedMessage = StoredMessage(

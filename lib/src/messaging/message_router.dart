@@ -8,6 +8,7 @@ import '../models/message.dart';
 import '../models/peer.dart';
 import '../encryption/encryption_service.dart';
 import '../utils/message_padding.dart';
+import '../utils/string_encoding.dart';
 import 'dart:convert'; // Added for jsonDecode
 
 /// Message router for bitchat network
@@ -95,7 +96,7 @@ class MessageRouter {
   /// Handle key exchange messages
   Future<bool> _handleKeyExchange(BitchatPacket packet) async {
     try {
-      final senderID = String.fromCharCodes(packet.senderID);
+      final senderID = StringEncoding.safeBytesToString(packet.senderID);
       
       // Create unique key for this exchange
       final exchangeKey = '$senderID-${packet.payload.take(16).map((b) => b.toRadixString(16).padLeft(2, '0')).join()}';
@@ -129,8 +130,8 @@ class MessageRouter {
   /// Handle announce messages
   Future<bool> _handleAnnounce(BitchatPacket packet) async {
     try {
-      final senderID = String.fromCharCodes(packet.senderID);
-      final nickname = String.fromCharCodes(packet.payload);
+      final senderID = StringEncoding.safeBytesToString(packet.senderID);
+      final nickname = StringEncoding.safeBytesToString(packet.payload);
       
       // Create peer object
       final peer = Peer(
@@ -167,7 +168,7 @@ class MessageRouter {
   /// This handles both private and channel messages in a unified format
   Future<bool> _handleUnifiedMessage(BitchatPacket packet) async {
     try {
-      final senderID = String.fromCharCodes(packet.senderID);
+      final senderID = StringEncoding.safeBytesToString(packet.senderID);
       
       // Check if this is a private message for us
       // Swift bitchat uses SpecialRecipients.broadcast = Data(repeating: 0xFF, count: 8)
@@ -274,14 +275,14 @@ class MessageRouter {
       if (offset >= data.length) return null;
       final idLength = data[offset]; offset++;
       if (offset + idLength > data.length) return null;
-      final id = String.fromCharCodes(data.sublist(offset, offset + idLength));
+      final id = StringEncoding.safeBytesToString(data.sublist(offset, offset + idLength));
       offset += idLength;
       
       // Sender
       if (offset >= data.length) return null;
       final senderLength = data[offset]; offset++;
       if (offset + senderLength > data.length) return null;
-      final sender = String.fromCharCodes(data.sublist(offset, offset + senderLength));
+      final sender = StringEncoding.safeBytesToString(data.sublist(offset, offset + senderLength));
       offset += senderLength;
       
       // Content (2 bytes length)
@@ -296,7 +297,7 @@ class MessageRouter {
         encryptedContent = data.sublist(offset, offset + contentLength);
         content = ""; // Empty placeholder for encrypted content
       } else {
-        content = String.fromCharCodes(data.sublist(offset, offset + contentLength));
+        content = StringEncoding.safeBytesToString(data.sublist(offset, offset + contentLength));
         encryptedContent = null;
       }
       offset += contentLength;
@@ -306,7 +307,7 @@ class MessageRouter {
       if (hasOriginalSender && offset < data.length) {
         final length = data[offset]; offset++;
         if (offset + length <= data.length) {
-          originalSender = String.fromCharCodes(data.sublist(offset, offset + length));
+          originalSender = StringEncoding.safeBytesToString(data.sublist(offset, offset + length));
           offset += length;
         }
       }
@@ -315,7 +316,7 @@ class MessageRouter {
       if (hasRecipientNickname && offset < data.length) {
         final length = data[offset]; offset++;
         if (offset + length <= data.length) {
-          recipientNickname = String.fromCharCodes(data.sublist(offset, offset + length));
+          recipientNickname = StringEncoding.safeBytesToString(data.sublist(offset, offset + length));
           offset += length;
         }
       }
@@ -324,7 +325,7 @@ class MessageRouter {
       if (hasSenderPeerID && offset < data.length) {
         final length = data[offset]; offset++;
         if (offset + length <= data.length) {
-          senderPeerID = String.fromCharCodes(data.sublist(offset, offset + length));
+          senderPeerID = StringEncoding.safeBytesToString(data.sublist(offset, offset + length));
           offset += length;
         }
       }
@@ -338,7 +339,7 @@ class MessageRouter {
           for (int i = 0; i < mentionCount && offset < data.length; i++) {
             final length = data[offset]; offset++;
             if (offset + length <= data.length) {
-              final mention = String.fromCharCodes(data.sublist(offset, offset + length));
+              final mention = StringEncoding.safeBytesToString(data.sublist(offset, offset + length));
               mentions!.add(mention);
               offset += length;
             }
@@ -351,7 +352,7 @@ class MessageRouter {
       if (hasChannel && offset < data.length) {
         final length = data[offset]; offset++;
         if (offset + length <= data.length) {
-          channel = String.fromCharCodes(data.sublist(offset, offset + length));
+          channel = StringEncoding.safeBytesToString(data.sublist(offset, offset + length));
           offset += length;
         }
       }

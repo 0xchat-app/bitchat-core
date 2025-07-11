@@ -1,5 +1,6 @@
 /// Represents a message in the bitchat network
 import '../protocol/bitchat_packet.dart';
+import '../utils/string_encoding.dart';
 
 class BitchatMessage {
   /// Unique message ID
@@ -122,8 +123,8 @@ class BitchatMessage {
   
   /// Create from BitchatPacket
   factory BitchatMessage.fromPacket(BitchatPacket packet) {
-    final senderID = String.fromCharCodes(packet.senderID);
-    final content = String.fromCharCodes(packet.payload);
+    final senderID = StringEncoding.safeBytesToString(packet.senderID);
+    final content = StringEncoding.safeBytesToString(packet.payload);
     
     return BitchatMessage(
       id: packet.messageID,
@@ -132,13 +133,13 @@ class BitchatMessage {
       senderID: senderID,
       senderNickname: 'User${senderID.substring(0, 4)}', // Default nickname
       recipientID: packet.recipientID != null 
-          ? String.fromCharCodes(packet.recipientID!)
+          ? StringEncoding.safeBytesToString(packet.recipientID!)
           : null,
       channel: null, // Will be parsed from content if needed
       timestamp: packet.timestamp,
       isEncrypted: false, // Will be determined during processing
       signature: packet.signature != null 
-          ? String.fromCharCodes(packet.signature!)
+          ? StringEncoding.safeBytesToString(packet.signature!)
           : null,
     );
   }

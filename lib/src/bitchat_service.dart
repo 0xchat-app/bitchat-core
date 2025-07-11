@@ -19,6 +19,7 @@ import 'models/peer.dart';
 import 'models/channel.dart';
 import 'models/message.dart';
 import 'utils/message_padding.dart';
+import 'utils/string_encoding.dart';
 
 /// Bitchat service errors
 enum BitchatError implements Exception {
@@ -400,7 +401,7 @@ class BitchatService {
         timestamp: DateTime.now().millisecondsSinceEpoch,
         senderID: Uint8List.fromList(_myPeerID!.codeUnits),
         recipientID: null, // Broadcast
-        payload: Uint8List.fromList(_myNickname!.codeUnits),
+        payload: StringEncoding.safeStringToBytes(_myNickname!),
         signature: null, // No signature for announce messages
       );
 
@@ -631,17 +632,17 @@ class BitchatService {
     }
     
     // ID
-    final idBytes = message.id.codeUnits;
+    final idBytes = StringEncoding.safeStringToBytes(message.id);
     buffer.add(idBytes.length.clamp(0, 255));
     buffer.addAll(idBytes.take(255));
     
     // Sender (nickname)
-    final senderBytes = message.senderNickname.codeUnits;
+    final senderBytes = StringEncoding.safeStringToBytes(message.senderNickname);
     buffer.add(senderBytes.length.clamp(0, 255));
     buffer.addAll(senderBytes.take(255));
     
     // Content (2 bytes length + content)
-    final contentBytes = message.content.codeUnits;
+    final contentBytes = StringEncoding.safeStringToBytes(message.content);
     buffer.add((contentBytes.length >> 8) & 0xFF);
     buffer.add(contentBytes.length & 0xFF);
     buffer.addAll(contentBytes.take(65535));
@@ -652,7 +653,7 @@ class BitchatService {
     
     // Sender peer ID
     if (message.senderID.isNotEmpty) {
-      final peerIdBytes = message.senderID.codeUnits;
+      final peerIdBytes = StringEncoding.safeStringToBytes(message.senderID);
       buffer.add(peerIdBytes.length.clamp(0, 255));
       buffer.addAll(peerIdBytes.take(255));
     }
@@ -661,7 +662,7 @@ class BitchatService {
     
     // Channel
     if (message.channel != null) {
-      final channelBytes = message.channel!.codeUnits;
+      final channelBytes = StringEncoding.safeStringToBytes(message.channel!);
       buffer.add(channelBytes.length.clamp(0, 255));
       buffer.addAll(channelBytes.take(255));
     }
