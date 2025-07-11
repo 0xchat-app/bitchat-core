@@ -1,4 +1,4 @@
-library bitchat_core;
+library bitchat_flutter_plugin;
 
 // Export all public APIs
 export 'src/bitchat_service.dart';

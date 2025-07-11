@@ -1,4 +1,4 @@
-/// Bitchat data models for bitchat-core
+/// Bitchat data models for bitchat-flutter-plugin
 /// Defines peer and message structures for bitchat functionality
 
 /// Bitchat message types

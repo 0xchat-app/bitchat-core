@@ -2,11 +2,11 @@
 # To learn more about a Podspec see http://guides.cocoapods.org/syntax/podspec.html
 #
 Pod::Spec.new do |s|
-  s.name             = 'bitchat_core'
+  s.name             = 'bitchat_flutter_plugin'
   s.version          = '1.0.0'
-  s.summary          = 'Core bitchat protocol and Bluetooth mesh networking for Flutter'
+  s.summary          = 'Flutter plugin for bitchat protocol and Bluetooth mesh networking'
   s.description      = <<-DESC
-Core bitchat protocol and Bluetooth mesh networking for Flutter.
+Flutter plugin for bitchat protocol and Bluetooth mesh networking.
 Provides BLE peripheral and central functionality compatible with bitchat Swift implementation.
                        DESC
   s.homepage         = 'https://github.com/your-org/0xchat-lite'

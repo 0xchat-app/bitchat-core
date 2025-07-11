@@ -1,5 +1,5 @@
-name: bitchat_core
-description: Core bitchat protocol and Bluetooth mesh networking for Flutter
+name: bitchat_flutter_plugin
+description: Flutter plugin for bitchat protocol and Bluetooth mesh networking
 version: 1.0.0
 
 environment:
