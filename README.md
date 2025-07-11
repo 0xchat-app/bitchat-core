@@ -6,6 +6,8 @@ This is the Flutter plugin for the [bitchat](https://github.com/permissionlesste
 - Supports Bluetooth Low Energy (BLE) mesh networking for message relay
 - Usable in both mobile and desktop Flutter projects
 
+<img src="https://image.nostr.build/31625c86439eef530546b8a1cece959257aec5d5c67c95a0fc4f5871002c527f.jpg" alt="Bitchat Flutter Plugin Demo Screenshot" width="300" style="max-width: 100%; height: auto;">
+
 ## Usage
 
 This plugin is designed for Flutter apps that need to integrate the bitchat protocol, peer-to-peer messaging, and Bluetooth relay features.
