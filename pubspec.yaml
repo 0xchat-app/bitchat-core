@@ -11,8 +11,7 @@ dependencies:
     sdk: flutter
   
   # Bluetooth and networking
-  flutter_blue_plus: ^1.35.5
-  flutter_ble_peripheral: ^1.2.6
+  bluetooth_low_energy: ^6.0.2
   permission_handler: ^11.3.1
   
   # Encryption and crypto
@@ -34,6 +33,4 @@ dev_dependencies:
 # Platform-specific code
 flutter:
   plugin:
-    platforms:
-      ios:
-        pluginClass: BlePeripheralPlugin 
+    platforms: {} 

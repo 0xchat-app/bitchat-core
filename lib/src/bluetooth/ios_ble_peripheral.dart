@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/services.dart';
-import 'bluetooth_mesh_service.dart' show PeerDiscoveredCallback;
+import 'ble_service.dart' show PeerDiscoveredCallback;
 
 /// iOS BLE Service
 /// Provides both BLE peripheral and central functionality using iOS native code

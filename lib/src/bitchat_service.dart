@@ -11,7 +11,7 @@ import 'dart:convert'; // Added for jsonEncode
 import 'protocol/binary_protocol.dart';
 import 'protocol/bitchat_packet.dart';
 import 'protocol/message_types.dart';
-import 'bluetooth/bluetooth_mesh_service.dart';
+import 'bluetooth/ble_service.dart';
 import 'encryption/encryption_service.dart';
 import 'messaging/message_router.dart';
 import 'messaging/store_and_forward.dart';
@@ -50,7 +50,7 @@ class BitchatService {
   final Logger _logger = Logger();
   
   // Core services
-  late BluetoothMeshService _bluetoothService;
+  late BleService _bluetoothService;
   late EncryptionService _encryptionService;
   late MessageRouter _messageRouter;
   late StoreAndForward _storeAndForward;
@@ -127,7 +127,7 @@ class BitchatService {
       
       // Initialize services
       _encryptionService = EncryptionService();
-      _bluetoothService = BluetoothMeshService();
+      _bluetoothService = BleService();
       _messageRouter = MessageRouter();
       _storeAndForward = StoreAndForward();
       
@@ -410,7 +410,7 @@ class BitchatService {
         final binaryData = announcePacket.toBinaryData();
         if (binaryData != null) {
           // Send via BLE
-          await _bluetoothService.sendMessage(binaryData);
+          await _bluetoothService.sendBroadcastMessage(binaryData);
           _log('Sent announce message with nickname: $_myNickname');
           return true;
         } else {
@@ -528,7 +528,7 @@ class BitchatService {
         final binaryData = packet.toBinaryData();
         if (binaryData != null) {
           // Send via BLE
-          await _bluetoothService.sendMessage(binaryData);
+          await _bluetoothService.sendBroadcastMessage(binaryData);
           _log('Sent message via BLE: ${message.content}');
           return true;
         } else {
@@ -810,7 +810,7 @@ class BitchatService {
       // Send key exchange packet
       final binaryData = keyExchangePacket.toBinaryData();
       if (binaryData != null) {
-        await _bluetoothService.sendMessage(binaryData);
+        await _bluetoothService.sendBroadcastMessage(binaryData);
         _log('Sent key exchange to peer: $peerID');
       } else {
         _log('Failed to encode key exchange packet');

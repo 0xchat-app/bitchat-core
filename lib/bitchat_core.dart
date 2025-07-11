@@ -2,7 +2,7 @@ library bitchat_flutter_plugin;
 
 // Export all public APIs
 export 'src/bitchat_service.dart';
-export 'src/bluetooth/bluetooth_mesh_service.dart';
+export 'src/bluetooth/ble_service.dart';
 export 'src/bluetooth/ios_ble_peripheral.dart';
 export 'src/encryption/encryption_service.dart';
 export 'src/models/bitchat_models.dart';

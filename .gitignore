@@ -58,3 +58,4 @@ coverage/
 # Build outputs
 build/
 *.dart_tool/
+/bluetooth_low_energy
