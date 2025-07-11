@@ -211,5 +211,3 @@ The service throws `BitchatError` exceptions for various error conditions:
 - `messageTooLarge` - Message exceeds size limit
 - `networkError` - Network communication error
 - `permissionDenied` - Required permissions not granted
-
-For more usage details
