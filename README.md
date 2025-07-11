@@ -1,6 +1,6 @@
 # Bitchat-Flutter-Plugin
 
-This is the official Flutter plugin for the [bitchat](https://github.com/permissionlesstech/bitchat) core protocol and BLE mesh networking.
+This is the Flutter plugin for the [bitchat](https://github.com/permissionlesstech/bitchat) core protocol and BLE mesh networking.
 
 - Provides core decentralized chat protocol features
 - Supports Bluetooth Low Energy (BLE) mesh networking for message relay
