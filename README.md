@@ -51,7 +51,6 @@ Add the following capabilities to your iOS app in Xcode:
 dependencies:
   bitchat_flutter_plugin:
     git:
-      url: https://github.com/0xchat-app/bitchat-flutter-plugin.git
       url: https://github.com/wcat7/bitchat-flutter-plugin.git
       ref: master
 ```
